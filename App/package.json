@@ -42,7 +42,7 @@
     "simple-git": "^3.27.0",
     "tcp-port-used": "^1.0.2",
     "uuid": "^11.1.0",
-    "windows-debugger": "^1.1.5",
+    "windows-debugger": "^1.1.6",
     "zustand": "^5.0.3"
   },
   "devDependencies": {
