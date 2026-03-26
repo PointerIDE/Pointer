@@ -41,8 +41,12 @@ from tools_handlers import handle_tool_call, TOOL_DEFINITIONS
 # Import codebase indexer
 from codebase_indexer import CodebaseIndexer
 
-# Load environment variables
-load_dotenv()
+# Load environment variables with explicit UTF-8 encoding
+try:
+    load_dotenv(encoding='utf-8')
+except UnicodeDecodeError:
+    # Fallback: try to load without encoding specification
+    load_dotenv()
 
 app = FastAPI()
 
