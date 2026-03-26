@@ -310,19 +310,17 @@ const Titlebar: React.FC<TitlebarProps> = ({
         </div>
       </div>
       <div className={`titlebar-right ${isWindows ? 'windows' : 'macos'}`}>
-        {!isWindows && (
-          <div className="titlebar-controls">
-            <button className="titlebar-button" onClick={handleMinimize}>
-              &#x2212;
-            </button>
-            <button className="titlebar-button" onClick={handleMaximize}>
-              {isMaximized ? '❐' : '□'}
-            </button>
-            <button className="titlebar-button close" onClick={handleClose}>
-              ✕
-            </button>
-          </div>
-        )}
+        <div className="titlebar-controls">
+          <button className="titlebar-button" onClick={handleMinimize}>
+            −
+          </button>
+          <button className="titlebar-button" onClick={handleMaximize}>
+            {isMaximized ? '❐' : '□'}
+          </button>
+          <button className="titlebar-button close" onClick={handleClose}>
+            ✕
+          </button>
+        </div>
       </div>
     </div>
   );
