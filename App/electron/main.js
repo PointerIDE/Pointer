@@ -139,6 +139,8 @@ async function initDiscordRPC() {
   rpc.on('ready', () => {
     console.log('Discord RPC ready');
     updateRichPresence();
+    // Keep live status refreshed
+    setInterval(updateRichPresence, 15 * 1000);
   });
   
   // Login with client ID
@@ -153,12 +155,14 @@ function updateRichPresence() {
   try {
     // Check if user is not editing a real file
     const isIdling = !editorInfo.file || editorInfo.file === 'Untitled' || editorInfo.file === 'Welcome';
-    
+    const activeFile = isIdling ? 'Idle' : path.basename(editorInfo.file);
+    const workspaceName = editorInfo.workspace || 'Pointer';
+
     // Replace placeholders in messages
-    const details = replaceVariables(discordRpcSettings.details);
-    const state = replaceVariables(discordRpcSettings.state);
+    const details = isIdling ? `Editing in ${workspaceName}` : `Editing ${activeFile}`;
+    const state = isIdling ? 'Waiting for input' : `Workspace: ${workspaceName}`;
     const largeImageText = replaceVariables(discordRpcSettings.largeImageText);
-    const smallImageText = replaceVariables(discordRpcSettings.smallImageText);
+    const smallImageText = isIdling ? 'Idle mode' : `${activeFile} | Line ${editorInfo.line}:${editorInfo.column}`;
     
     // Determine correct image keys based on language
     let smallImageKey = discordRpcSettings.smallImageKey;

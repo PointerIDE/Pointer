@@ -67,8 +67,12 @@ except Exception as e:
 # Initialize GitHub OAuth
 try:
     github_oauth = GitHubOAuth()
+    print("GitHub OAuth initialized successfully")
 except ValueError as e:
     print(f"Warning: GitHub OAuth not configured: {str(e)}")
+    github_oauth = None
+except Exception as e:
+    print(f"Warning: GitHub OAuth initialization failed: {str(e)}")
     github_oauth = None
 
 # Global codebase indexer instance

@@ -29,15 +29,27 @@ def get_app_data_path() -> Path:
 
 class GitHubOAuth:
     def __init__(self):
-        # Get client ID from environment or use a default public one
-        self.client_id = requests.get('https://pointerapi.f1shy312.com/github/client_id').json()['client_id']
+        # Prefer explicit project configuration
+        self.client_id = os.getenv('GITHUB_CLIENT_ID')
+        if not self.client_id:
+            # Fallback: try remote service
+            try:
+                resp = requests.get('https://pointerapi.f1shy312.com/github/client_id', timeout=5)
+                resp.raise_for_status()
+                data = resp.json()
+                self.client_id = data.get('client_id')
+            except Exception as e:
+                print(f"Warning: Could not fetch GitHub client ID (remote). {e}")
+                self.client_id = None
+
+        if not self.client_id:
+            raise ValueError("GitHub OAuth client_id is not configured")
+
         self.redirect_uri = 'http://localhost:23816/github/callback'
-        # Server URL for token exchange
         self.server_url = os.getenv('OAUTH_SERVER_URL', 'https://pointerapi.f1shy312.com')
-        
-        # Check if server is available
+
         try:
-            response = requests.get(f"{self.server_url}/health")
+            response = requests.get(f"{self.server_url}/health", timeout=5)
             if response.status_code != 200:
                 print("Warning: OAuth server is not responding. GitHub OAuth will not work.")
                 print("Please ensure the OAuth server is running.")
