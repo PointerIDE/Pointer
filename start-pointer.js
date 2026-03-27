@@ -59,13 +59,26 @@ async function isPortInUse(port) {
 }
 
 // Function to verify project structure and dependencies
-async function verifyProjectSetup() {
+async function verifyProjectSetup(strict = false) {
   console.log(chalk.blue('\n📋 Verifying project setup...'));
   
-  const requiredDirs = [
-    'src',
+  // Check if we're in the root directory with App subfolder
+  const appDir = path.join(process.cwd(), 'App');
+  const isSplitStructure = fs.existsSync(appDir);
+  
+  const checkDir = isSplitStructure ? appDir : process.cwd();
+  
+  // Essential directories - at least src should exist
+  const essentialDirs = [
+    'src'
+  ];
+  
+  // Optional directories
+  const optionalDirs = [
+    'public',
     'backend',
-    'public'
+    'electron',
+    'server'
   ];
   
   const requiredFiles = [
@@ -74,33 +87,68 @@ async function verifyProjectSetup() {
     'tsconfig.json'
   ];
   
-  // Check directories
-  for (const dir of requiredDirs) {
-    if (!fs.existsSync(path.join(process.cwd(), dir))) {
+  // Check essential directories
+  for (const dir of essentialDirs) {
+    if (!fs.existsSync(path.join(checkDir, dir))) {
       throw new Error(`❌ Required directory missing: ${dir}`);
     }
   }
   
-  // Check files
-  for (const file of requiredFiles) {
-    if (!fs.existsSync(path.join(process.cwd(), file))) {
-      throw new Error(`❌ Required file missing: ${file}`);
+  // Check files (only if strict mode)
+  if (strict) {
+    for (const file of requiredFiles) {
+      if (!fs.existsSync(path.join(checkDir, file))) {
+        throw new Error(`❌ Required file missing: ${file}`);
+      }
     }
+  }
+  
+  if (isSplitStructure) {
+    console.log(chalk.cyan('  📁 Split structure detected (App/ subdirectory)'));
   }
   
   console.log(chalk.green('✅ Project structure verified'));
 }
 
-// Function to check if node_modules exists
-function checkNodeModules() {
-  if (!fs.existsSync(path.join(process.cwd(), 'node_modules'))) {
-    console.log(chalk.yellow('\n⚠️  node_modules not found. Running yarn install...'));
+// Function to check if node_modules exists and install if needed
+function checkNodeModules(location = '.') {
+  const modulePath = path.join(location, 'node_modules');
+  if (!fs.existsSync(modulePath)) {
+    console.log(chalk.yellow('\n⚠️  node_modules not found. Installing dependencies...'));
     const { execSync } = require('child_process');
     try {
-      execSync('yarn install', { stdio: 'inherit' });
+      const cwd = location;
+      console.log(chalk.blue(`   📦 Installing in: ${cwd}`));
+      execSync('npm install', { stdio: 'inherit', cwd });
       console.log(chalk.green('✅ Dependencies installed'));
     } catch (error) {
-      throw new Error('Failed to install dependencies');
+      throw new Error(`Failed to install dependencies in ${location}`);
+    }
+  }
+}
+
+// Function to ensure script dependencies are available
+function ensureScriptDependencies() {
+  const requiredModules = ['tcp-port-used', 'chalk'];
+  let missingModules = [];
+  
+  for (const module of requiredModules) {
+    try {
+      require.resolve(module);
+    } catch (error) {
+      missingModules.push(module);
+    }
+  }
+  
+  if (missingModules.length > 0) {
+    console.log(chalk.yellow(`⚠️  Missing script dependencies: ${missingModules.join(', ')}`));
+    console.log(chalk.yellow('   Installing...\n'));
+    const { execSync } = require('child_process');
+    try {
+      execSync(`npm install ${missingModules.join(' ')}`, { stdio: 'inherit' });
+      console.log(chalk.green('✅ Script dependencies installed\n'));
+    } catch (error) {
+      throw new Error('Failed to install script dependencies');
     }
   }
 }
@@ -110,9 +158,16 @@ async function buildProject() {
   return new Promise((resolve, reject) => {
     console.log(chalk.blue('\n🔨 Building project...'));
     
+    // Determine build directory
+    const appDir = path.join(process.cwd(), 'App');
+    const buildDir = fs.existsSync(appDir) ? appDir : process.cwd();
+    
+    console.log(chalk.cyan(`   📁 Building in: ${buildDir}`));
+    
     const buildProcess = spawn('yarn.cmd', ['build'], {
       stdio: 'inherit',
-      shell: true
+      shell: true,
+      cwd: buildDir
     });
     
     buildProcess.on('close', (code) => {
@@ -232,6 +287,9 @@ function startProcess(command, args, name, color, env = {}) {
 // Main function
 async function main() {
   try {
+    // Ensure script dependencies first
+    ensureScriptDependencies();
+    
     console.log(chalk.cyan(`
 ╔════════════════════════════════════════════════════════════════╗
 ║                    Pointer IDE Starter                         ║
@@ -243,11 +301,16 @@ async function main() {
       console.log(chalk.yellow('⚠️  Skip checks mode enabled'));
     }
     
-    // Verify project setup
-    await verifyProjectSetup();
+    // Verify project setup (non-strict for build mode)
+    await verifyProjectSetup(false);
     
-    // Check node_modules
-    checkNodeModules();
+    // Check root node_modules
+    checkNodeModules('.');
+    
+    // Check App node_modules
+    if (fs.existsSync(path.join(process.cwd(), 'App'))) {
+      checkNodeModules(path.join(process.cwd(), 'App'));
+    }
     
     // Build only mode
     if (buildOnly) {
