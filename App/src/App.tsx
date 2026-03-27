@@ -4,7 +4,7 @@ import FileExplorer from './components/FileExplorer';
 import Tabs from './components/Tabs';
 import Resizable from './components/Resizable';
 import { FileSystemItem, FileSystemState, TabInfo } from './types';
-import { FileSystemService } from './services/FileSystemService';
+import { FileService } from './services/FileService';
 import EditorGrid from './components/EditorGrid';
 import { initializeLanguageSupport, getLanguageFromFileName } from './utils/languageUtils';
 import { LLMChat } from './components/LLMChat';
@@ -235,7 +235,7 @@ const App: React.FC = () => {
   // Load settings, including Discord settings
   const loadSettings = async () => {
     try {
-      const result = await FileSystemService.readSettingsFiles(PathConfig.getActiveSettingsPath());
+      const result = await FileService.readSettingsFiles(PathConfig.getActiveSettingsPath());
       if (result && result.success) {
         setSettingsData(result.settings);
         
@@ -590,10 +590,10 @@ const App: React.FC = () => {
       
       try {
         // Refresh structure before loading file
-        await FileSystemService.refreshStructure();
+        await FileService.refreshStructure();
         
         // Then load the file
-        const content = await FileSystemService.readFile(fileId);
+        const content = await FileService.readFile(fileId);
         if (content !== null) {
           setFileSystem(prev => ({
             ...prev,
@@ -675,7 +675,7 @@ const App: React.FC = () => {
     
     // Then load the file content
     try {
-      const content = await FileSystemService.readFile(tabId);
+      const content = await FileService.readFile(tabId);
       console.log('File content loaded:', content ? 'success' : 'null');
       
       if (content !== null) {
@@ -714,7 +714,7 @@ const App: React.FC = () => {
 
         // Only save if there's actual content and a valid path
         if (content && fileSystem.items[tabId].path) {
-          await FileSystemService.saveFile(tabId, content);
+          await FileService.saveFile(tabId, content);
         }
       } catch (error) {
         console.error(`Error saving file before closing tab: ${tabId}`, error);
@@ -760,9 +760,9 @@ const App: React.FC = () => {
       setLoadingError(null);
 
       // Clear loaded folders when opening a new directory
-      FileSystemService.clearLoadedFolders();
+      FileService.clearLoadedFolders();
 
-      const result = await FileSystemService.openDirectory();
+      const result = await FileService.openDirectory();
       
       if (result) {
         // Update editor content
@@ -810,7 +810,7 @@ const App: React.FC = () => {
     applyCustomTheme();
     
     try {
-      const result = await FileSystemService.openFile();
+      const result = await FileService.openFile();
       if (!result) {
         console.error('Failed to open file: No result returned');
         return;
@@ -878,7 +878,7 @@ const App: React.FC = () => {
     if (!modalState.parentId || !modalState.type || !modalState.name) return;
 
     if (modalState.type === 'file') {
-      const result = await FileSystemService.createFile(modalState.parentId, modalState.name);
+      const result = await FileService.createFile(modalState.parentId, modalState.name);
       if (result) {
         setFileSystem(prev => ({
           ...prev,
@@ -889,7 +889,7 @@ const App: React.FC = () => {
         }));
       }
     } else {
-      const result = await FileSystemService.createDirectory(modalState.parentId, modalState.name);
+      const result = await FileService.createDirectory(modalState.parentId, modalState.name);
       if (result) {
         setFileSystem(prev => ({
           ...prev,
@@ -937,7 +937,7 @@ const App: React.FC = () => {
     const content = editor.current.getValue();
     
     try {
-      const result = await FileSystemService.saveFile(fileSystem.currentFileId, content);
+      const result = await FileService.saveFile(fileSystem.currentFileId, content);
       
       if (result.success) {
         // Update the file system state with the saved content
@@ -1012,7 +1012,7 @@ const App: React.FC = () => {
         saveTimeout = window.setTimeout(async () => {
           setSaveStatus('saving');
           try {
-            const result = await FileSystemService.saveFile(fileSystem.currentFileId!, content);
+            const result = await FileService.saveFile(fileSystem.currentFileId!, content);
             if (result.success) {
               // Update the file system state with the saved content
               setFileSystem(prev => ({
@@ -1099,7 +1099,7 @@ const App: React.FC = () => {
   };
 
   const handleDeleteItem = async (item: FileSystemItem) => {
-    const success = await FileSystemService.deleteItem(item.path);
+    const success = await FileService.deleteItem(item.path);
     if (success) {
       // If the deleted item was a file and it was open, close its tab
       if (item.type === 'file' && openFiles.includes(item.id)) {
@@ -1142,7 +1142,7 @@ const App: React.FC = () => {
 
   const handleRenameItem = async (item: FileSystemItem, newName: string) => {
     try {
-      const result = await FileSystemService.renameItem(item.path, newName);
+      const result = await FileService.renameItem(item.path, newName);
       if (result.success && result.newPath) {
         // Update the item in the file system state
         setFileSystem(prev => {
@@ -1170,7 +1170,7 @@ const App: React.FC = () => {
       if (!file || file.type !== 'file') return;
 
       // Re-fetch the file content
-      const content = await FileSystemService.readFile(fileId);
+      const content = await FileService.readFile(fileId);
       if (content !== null) {
         // Update file system state
         setFileSystem(prev => ({
@@ -1291,7 +1291,7 @@ const App: React.FC = () => {
         const lastDir = localStorage.getItem('lastDirectory');
         if (lastDir) {
           setConnectionMessage('');
-          const result = await FileSystemService.openSpecificDirectory(lastDir);
+          const result = await FileService.openSpecificDirectory(lastDir);
           if (result) {
             setFileSystem(prevState => ({
               ...prevState,

@@ -11,14 +11,14 @@ export class CodebaseContextService {
       const response = await fetch('http://localhost:23816/api/codebase/overview');
       
       if (!response.ok) {
-        console.warn('Codebase overview not available:', response.status);
+        logger.warn('Codebase overview not available', { status: response.status });
         return '';
       }
       
       const data = await response.json();
       
       if (data.error) {
-        console.warn('Codebase overview error:', data.error);
+        logger.warn('Codebase overview error', { error: data.error });
         return '';
       }
       
@@ -77,7 +77,7 @@ export class CodebaseContextService {
       return context;
       
     } catch (error) {
-      console.warn('Failed to fetch codebase context:', error);
+      logger.warn('Failed to fetch codebase context', error);
       return '';
     }
   }

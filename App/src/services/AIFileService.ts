@@ -1,14 +1,17 @@
-import { FileSystemService } from './FileSystemService';
+import { FileService } from './FileService';
 import lmStudio from './LMStudioService';
-import { FileChangeEventService } from './FileChangeEventService';
 import { cleanAIResponse } from '../utils/textUtils';
 import { PathConfig } from '../config/paths';
+import { API_CONFIG } from '../config/apiConfig';
+import { logger } from './LoggerService';
 import { FileSystemItem } from '../types';
 
 interface FileOperation {
   path: string;
   content: string;
 }
+
+import { logger } from './LoggerService';
 
 export class AIFileService {
   private static async detectFileType(content: string): Promise<string> {
@@ -53,7 +56,7 @@ Return ONLY the file extension.`;
 
       return validExtensions.has(extension) ? extension : 'txt';
     } catch (error) {
-      console.error('Error detecting file type:', error);
+      logger.error('Error detecting file type', error);
       return 'txt';
     }
   }
@@ -61,10 +64,10 @@ Return ONLY the file extension.`;
   private static async findExistingFile(content: string): Promise<string | null> {
     try {
       // Get list of all files in the project
-      const currentDir = FileSystemService.getCurrentDirectory();
+      const currentDir = FileService.getCurrentDirectory();
       if (!currentDir) return null;
 
-      const response = await fetch(`http://localhost:23816/files?${new URLSearchParams({
+      const response = await fetch(`\\/files?${new URLSearchParams({
         currentDir
       })}`);
 
@@ -110,7 +113,7 @@ Return ONLY the file extension.`;
       // Check each file for matching identifiers
       for (const file of files) {
         try {
-          const fileContent = await fetch(`http://localhost:23816/read-file?path=${encodeURIComponent(file.path)}`).then(r => r.text());
+          const fileContent = await fetch(`\\/read-file?path=${encodeURIComponent(file.path)}`).then(r => r.text());
           
           // Count how many identifiers match
           let matches = 0;
@@ -140,13 +143,13 @@ Return ONLY the file extension.`;
             }
           }
         } catch (error) {
-          console.error(`Error reading file ${file.path}:`, error);
+          logger.error(`Error reading file ${file.path}`, error);
         }
       }
 
       return null;
     } catch (error) {
-      console.error('Error finding existing file:', error);
+      logger.error('Error finding existing file', error);
       return null;
     }
   }
@@ -244,7 +247,7 @@ Return ONLY the file extension.`;
 
   private static async fileExists(path: string): Promise<boolean> {
     try {
-      const response = await fetch(`http://localhost:23816/file-exists`, {
+      const response = await fetch(`\\/file-exists`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -267,7 +270,7 @@ Return ONLY the file extension.`;
     const directoryPath = filePath.split('/').slice(0, -1).join('/');
     if (directoryPath) {
       try {
-        await fetch('http://localhost:23816/create-directory', {
+        await fetch('\\/create-directory', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -278,7 +281,7 @@ Return ONLY the file extension.`;
           }),
         });
       } catch (error) {
-        console.log('Directory might already exist:', error);
+        logger.debug('Directory might already exist', error);
       }
     }
   }
@@ -295,12 +298,12 @@ Return ONLY the file extension.`;
 
   private static async getFileStructure(): Promise<string> {
     try {
-      const currentDir = FileSystemService.getCurrentDirectory();
+      const currentDir = FileService.getCurrentDirectory();
       if (!currentDir) {
         return "No directory opened.";
       }
 
-      const response = await fetch(`http://localhost:23816/files?${new URLSearchParams({
+      const response = await fetch(`\\/files?${new URLSearchParams({
         currentDir
       })}`);
 
@@ -444,7 +447,7 @@ Return ONLY the final formatted code without any explanations. The code should b
       const currentItems = window.fileSystem?.items || {};
       
       // First refresh the file structure
-      await FileSystemService.refreshStructure();
+      await FileService.refreshStructure();
       
       // Merge the states more carefully
       if (window.fileSystem) {
@@ -463,9 +466,9 @@ Return ONLY the final formatted code without any explanations. The code should b
       }
       
       // Get current directory and reload its contents
-      const currentDir = FileSystemService.getCurrentDirectory();
+      const currentDir = FileService.getCurrentDirectory();
       if (currentDir) {
-        await FileSystemService.fetchFolderContents(currentDir);
+        await FileService.fetchFolderContents(currentDir);
       }
 
       // Only reload editor content if specifically requested
@@ -481,7 +484,7 @@ Return ONLY the final formatted code without any explanations. The code should b
             await window.reloadFileContent(fileId);
           } else {
             // Fallback to direct file read
-            const response = await fetch(`http://localhost:23816/read-file?path=${encodeURIComponent(currentFile.path)}`);
+            const response = await fetch(`\\/read-file?path=${encodeURIComponent(currentFile.path)}`);
             if (response.ok) {
               const updatedContent = await response.text();
               if (window.editor?.setValue) {
@@ -516,12 +519,12 @@ Return ONLY the final formatted code without any explanations. The code should b
           params.append('path', normalizedPath);
           
           // Only append currentDir if not a root path
-          const currentDir = FileSystemService.getCurrentDirectory();
+          const currentDir = FileService.getCurrentDirectory();
           if (currentDir && !isRootPath) {
             params.append('currentDir', currentDir);
           }
           
-          const response = await fetch(`http://localhost:23816/read-file?${params}`);
+          const response = await fetch(`\\/read-file?${params}`);
           
           if (!response.ok) {
             console.error(`Failed to read existing file: ${normalizedPath}`);
@@ -538,13 +541,13 @@ Return ONLY the final formatted code without any explanations. The code should b
           }
 
           // Only emit the change, don't save yet
-          FileChangeEventService.emitChange(normalizedPath, existingContent, mergedContent);
+          FileService.emitChange(normalizedPath, existingContent, mergedContent);
           console.log(`Proposed changes for: ${normalizedPath}`);
         } else {
           const formattedContent = await this.prepareNewFile(operation.content, normalizedPath);
           
           // Only emit the change for new files, don't save yet
-          FileChangeEventService.emitChange(normalizedPath, '', formattedContent);
+          FileService.emitChange(normalizedPath, '', formattedContent);
           console.log(`Proposed new file: ${normalizedPath}`);
         }
       } catch (error) {
@@ -616,7 +619,7 @@ ${content.length > 32000 ? content.substring(0, 32000) + "\n[truncated]" : conte
     try {
       // Try to load from settings file
       const settingsPath = PathConfig.getActiveSettingsPath();
-      const settingsResult = await FileSystemService.readSettingsFiles(settingsPath);
+      const settingsResult = await FileService.readSettingsFiles(settingsPath);
       if (settingsResult.success && settingsResult.settings.models && 
           settingsResult.settings.modelAssignments && settingsResult.settings.modelAssignments[purpose]) {
         const assignedModelId = settingsResult.settings.modelAssignments[purpose];
@@ -641,10 +644,10 @@ ${content.length > 32000 ? content.substring(0, 32000) + "\n[truncated]" : conte
                   
                   // Update the settings with the discovered model ID
                   try {
-                    const currentSettings = await FileSystemService.readSettingsFiles(settingsPath);
+                    const currentSettings = await FileService.readSettingsFiles(settingsPath);
                     if (currentSettings.success && currentSettings.settings.models) {
                       currentSettings.settings.models[assignedModelId].id = modelId;
-                      await FileSystemService.saveSettingsFiles(settingsPath, currentSettings.settings);
+                      await FileService.saveSettingsFiles(settingsPath, currentSettings.settings);
                       console.log(`Updated settings with discovered model ID: ${modelId}`);
                     }
                   } catch (updateError) {
@@ -720,7 +723,7 @@ ${content.length > 32000 ? content.substring(0, 32000) + "\n[truncated]" : conte
       let modelId = await this.getModelIdForPurpose(purpose);
       
       const settingsPath = PathConfig.getActiveSettingsPath();
-      const settingsResult = await FileSystemService.readSettingsFiles(settingsPath);
+      const settingsResult = await FileService.readSettingsFiles(settingsPath);
       if (settingsResult.success && settingsResult.settings.models && 
           settingsResult.settings.modelAssignments && settingsResult.settings.modelAssignments[purpose]) {
         const assignedModelId = settingsResult.settings.modelAssignments[purpose];
@@ -1190,3 +1193,4 @@ ${content.length > 32000 ? content.substring(0, 32000) + "\n[truncated]" : conte
     }
   }
 } 
+

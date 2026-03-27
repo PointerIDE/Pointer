@@ -335,7 +335,185 @@ export class FileService {
     logger.debug('File cache cleared');
   }
 
+  /**
+   * Refresh file structure from backend
+   */
   private static async refreshStructure(): Promise<void> {
-    // Placeholder for future structure refresh logic
+    try {
+      const response = await fetch(`${this.API_URL}/refresh-structure`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      if (!response.ok) {
+        logger.warn('Failed to refresh structure', { status: response.status });
+      }
+    } catch (error) {
+      logger.debug('Structure refresh error', error);
+    }
+  }
+
+  /**
+   * Open file dialog for selecting a file
+   */
+  static async openFile(): Promise<{ 
+    fileId: string; 
+    path: string; 
+    items: Record<string, FileSystemItem>; 
+    rootId: string 
+  } | null> {
+    try {
+      const response = await fetch(`${this.API_URL}/open-file`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      if (!response.ok) {
+        logger.warn('Failed to open file dialog', { status: response.status });
+        return null;
+      }
+
+      return await response.json();
+    } catch (error) {
+      logger.error('Error opening file dialog', error);
+      return null;
+    }
+  }
+
+  /**
+   * Create a new file
+   */
+  static async createFile(parentId: string, fileName: string): Promise<{ 
+    item: FileSystemItem; 
+    items: Record<string, FileSystemItem> 
+  } | null> {
+    try {
+      const response = await fetch(`${this.API_URL}/create-file`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ parentId, fileName })
+      });
+
+      if (!response.ok) {
+        logger.warn('Failed to create file', { status: response.status, fileName });
+        return null;
+      }
+
+      logger.info('File created', { fileName });
+      return await response.json();
+    } catch (error) {
+      logger.error('Error creating file', error, { fileName });
+      return null;
+    }
+  }
+
+  /**
+   * Create a new directory
+   */
+  static async createDirectory(parentId: string, dirName: string): Promise<{ 
+    item: FileSystemItem; 
+    items: Record<string, FileSystemItem> 
+  } | null> {
+    try {
+      const response = await fetch(`${this.API_URL}/create-directory`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ parentId, dirName })
+      });
+
+      if (!response.ok) {
+        logger.warn('Failed to create directory', { status: response.status, dirName });
+        return null;
+      }
+
+      logger.info('Directory created', { dirName });
+      return await response.json();
+    } catch (error) {
+      logger.error('Error creating directory', error, { dirName });
+      return null;
+    }
+  }
+
+  /**
+   * Delete a file or directory
+   */
+  static async deleteItem(path: string): Promise<boolean> {
+    try {
+      const response = await fetch(`${this.API_URL}/delete-item`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path })
+      });
+
+      if (!response.ok) {
+        logger.warn('Failed to delete item', { status: response.status, path });
+        return false;
+      }
+
+      logger.info('Item deleted', { path });
+      // Invalidate cache after deletion
+      this.fileCache.delete(this.normalizePath(path));
+      return true;
+    } catch (error) {
+      logger.error('Error deleting item', error, { path });
+      return false;
+    }
+  }
+
+  /**
+   * Rename a file or directory
+   */
+  static async renameItem(path: string, newName: string): Promise<{ 
+    item: FileSystemItem; 
+    items: Record<string, FileSystemItem> 
+  } | null> {
+    try {
+      const response = await fetch(`${this.API_URL}/rename-item`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path, newName })
+      });
+
+      if (!response.ok) {
+        logger.warn('Failed to rename item', { status: response.status, path });
+        return null;
+      }
+
+      logger.info('Item renamed', { path, newName });
+      // Invalidate cache after rename
+      this.fileCache.delete(this.normalizePath(path));
+      return await response.json();
+    } catch (error) {
+      logger.error('Error renaming item', error, { path });
+      return null;
+    }
+  }
+
+  /**
+   * Read settings files from backend
+   */
+  static async readSettingsFiles(path: string): Promise<{ 
+    settings?: any; 
+    error?: string 
+  } | null> {
+    try {
+      logger.debug('Reading settings files', { path });
+
+      const response = await fetch(`${this.API_URL}/read-settings-files`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path })
+      });
+
+      if (!response.ok) {
+        logger.warn('Failed to read settings files', { status: response.status });
+        return null;
+      }
+
+      return await response.json();
+    } catch (error) {
+      logger.error('Error reading settings files', error, { path });
+      return null;
+    }
   }
 }

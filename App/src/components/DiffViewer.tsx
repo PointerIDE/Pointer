@@ -1,7 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
 import * as monaco from 'monaco-editor';
-import { FileChangeEventService } from '../services/FileChangeEventService';
-import { FileSystemService } from '../services/FileSystemService';
+import { FileService } from '../services/FileService';
 import { getIconForFile } from './FileIcons';
 import { ThemeSettings } from '../types';
 
@@ -302,7 +301,7 @@ export const DiffViewer: React.FC = () => {
   };
 
   useEffect(() => {
-    const unsubscribe = FileChangeEventService.subscribe(async (filePath, oldContent, newContent) => {
+    const unsubscribe = FileService.subscribe(async (filePath, oldContent, newContent) => {
       // Check if there's already a diff for this file path
       const existingDiffIndex = diffs.findIndex(diff => diff.filePath === filePath);
       
@@ -577,8 +576,8 @@ export const DiffViewer: React.FC = () => {
     setIsProcessing(true);
     
     try {
-      // Use FileChangeEventService to accept the diff
-      const success = await FileChangeEventService.acceptDiff(currentDiff.filePath);
+      // Use FileService to accept the diff
+      const success = await FileService.acceptDiff(currentDiff.filePath);
       
       if (success) {
         // Create a new array without the current diff
@@ -592,7 +591,7 @@ export const DiffViewer: React.FC = () => {
       } else {
         // If the accept failed, try the original method
         const modifiedContent = diffEditorRef.current?.getModifiedEditor().getValue() || '';
-        await FileSystemService.saveFile(currentDiff.filePath, modifiedContent);
+        await FileService.saveFile(currentDiff.filePath, modifiedContent);
         
         // Create a new array without the current diff
         const newDiffs = diffs.filter((_, i) => i !== currentDiffIndex);
@@ -631,8 +630,8 @@ export const DiffViewer: React.FC = () => {
     try {
       const currentDiff = diffs[currentDiffIndex];
       
-      // Use FileChangeEventService to reject the diff
-      FileChangeEventService.rejectDiff(currentDiff.filePath);
+      // Use FileService to reject the diff
+      FileService.rejectDiff(currentDiff.filePath);
       
       // Create a new array without the current diff
       const newDiffs = diffs.filter((_, i) => i !== currentDiffIndex);
@@ -663,8 +662,8 @@ export const DiffViewer: React.FC = () => {
     setIsProcessing(true);
     
     try {
-      // Use FileChangeEventService to accept all diffs
-      const success = await FileChangeEventService.acceptAllDiffs();
+      // Use FileService to accept all diffs
+      const success = await FileService.acceptAllDiffs();
       
       if (success) {
         // Refresh the diff view with the new state
@@ -674,7 +673,7 @@ export const DiffViewer: React.FC = () => {
         for (const diff of diffs) {
           try {
             const modifiedContent = diff.newContent;
-            await FileSystemService.saveFile(diff.filePath, modifiedContent);
+            await FileService.saveFile(diff.filePath, modifiedContent);
             
             // Update the current open file if this is the file being changed
             const currentFile = window.getCurrentFile?.();
@@ -709,8 +708,8 @@ export const DiffViewer: React.FC = () => {
     setIsProcessing(true);
     
     try {
-      // Use FileChangeEventService to reject all diffs
-      FileChangeEventService.rejectAllDiffs();
+      // Use FileService to reject all diffs
+      FileService.rejectAllDiffs();
       
       // Refresh the file explorer using a custom event
       try {
