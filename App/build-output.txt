@@ -1,0 +1,119 @@
+
+> pointer@1.0.0 build
+> tsc && vite build
+
+src/App.tsx(295,28): error TS2339: Property 'success' does not exist on type '{ settings?: any; error?: string | undefined; }'.
+src/App.tsx(649,27): error TS2341: Property 'refreshStructure' is private and only accessible within class 'FileService'.
+src/App.tsx(892,25): error TS2339: Property 'id' does not exist on type '{ fileId: string; path: string; items: Record<string, FileSystemItem>; rootId: string; }'.
+src/App.tsx(893,22): error TS2339: Property 'id' does not exist on type '{ fileId: string; path: string; items: Record<string, FileSystemItem>; rootId: string; }'.
+src/App.tsx(894,24): error TS2339: Property 'filename' does not exist on type '{ fileId: string; path: string; items: Record<string, FileSystemItem>; rootId: string; }'.
+src/App.tsx(896,27): error TS2339: Property 'content' does not exist on type '{ fileId: string; path: string; items: Record<string, FileSystemItem>; rootId: string; }'.
+src/App.tsx(898,24): error TS2339: Property 'fullPath' does not exist on type '{ fileId: string; path: string; items: Record<string, FileSystemItem>; rootId: string; }'.
+src/App.tsx(904,19): error TS2339: Property 'id' does not exist on type '{ fileId: string; path: string; items: Record<string, FileSystemItem>; rootId: string; }'.
+src/App.tsx(905,32): error TS2339: Property 'id' does not exist on type '{ fileId: string; path: string; items: Record<string, FileSystemItem>; rootId: string; }'.
+src/App.tsx(906,29): error TS2339: Property 'content' does not exist on type '{ fileId: string; path: string; items: Record<string, FileSystemItem>; rootId: string; }'.
+src/App.tsx(913,33): error TS2339: Property 'id' does not exist on type '{ fileId: string; path: string; items: Record<string, FileSystemItem>; rootId: string; }'.
+src/App.tsx(918,45): error TS2339: Property 'id' does not exist on type '{ fileId: string; path: string; items: Record<string, FileSystemItem>; rootId: string; }'.
+src/App.tsx(922,40): error TS2339: Property 'content' does not exist on type '{ fileId: string; path: string; items: Record<string, FileSystemItem>; rootId: string; }'.
+src/App.tsx(943,21): error TS2339: Property 'id' does not exist on type '{ item: FileSystemItem; items: Record<string, FileSystemItem>; }'.
+src/App.tsx(943,33): error TS2339: Property 'file' does not exist on type '{ item: FileSystemItem; items: Record<string, FileSystemItem>; }'.
+src/App.tsx(954,21): error TS2339: Property 'id' does not exist on type '{ item: FileSystemItem; items: Record<string, FileSystemItem>; }'.
+src/App.tsx(954,33): error TS2339: Property 'directory' does not exist on type '{ item: FileSystemItem; items: Record<string, FileSystemItem>; }'.
+src/App.tsx(998,18): error TS2339: Property 'success' does not exist on type 'boolean'.
+src/App.tsx(1006,31): error TS2339: Property 'content' does not exist on type 'boolean'.
+src/App.tsx(1012,68): error TS2339: Property 'content' does not exist on type 'boolean'.
+src/App.tsx(1013,42): error TS2339: Property 'content' does not exist on type 'boolean'.
+src/App.tsx(1072,24): error TS2339: Property 'success' does not exist on type 'boolean'.
+src/App.tsx(1080,37): error TS2339: Property 'content' does not exist on type 'boolean'.
+src/App.tsx(1202,11): error TS18047: 'result' is possibly 'null'.
+src/App.tsx(1202,18): error TS2339: Property 'success' does not exist on type '{ item: FileSystemItem; items: Record<string, FileSystemItem>; }'.
+src/App.tsx(1202,29): error TS18047: 'result' is possibly 'null'.
+src/App.tsx(1202,36): error TS2339: Property 'newPath' does not exist on type '{ item: FileSystemItem; items: Record<string, FileSystemItem>; }'.
+src/App.tsx(1209,19): error TS18047: 'result' is possibly 'null'.
+src/App.tsx(1209,26): error TS2339: Property 'newPath' does not exist on type '{ item: FileSystemItem; items: Record<string, FileSystemItem>; }'.
+src/components/DiffViewer.tsx(304,37): error TS2339: Property 'subscribe' does not exist on type 'typeof FileService'.
+src/components/DiffViewer.tsx(304,54): error TS7006: Parameter 'filePath' implicitly has an 'any' type.
+src/components/DiffViewer.tsx(304,64): error TS7006: Parameter 'oldContent' implicitly has an 'any' type.
+src/components/DiffViewer.tsx(304,76): error TS7006: Parameter 'newContent' implicitly has an 'any' type.
+src/components/DiffViewer.tsx(580,41): error TS2339: Property 'acceptDiff' does not exist on type 'typeof FileService'.
+src/components/DiffViewer.tsx(634,19): error TS2339: Property 'rejectDiff' does not exist on type 'typeof FileService'.
+src/components/DiffViewer.tsx(666,41): error TS2551: Property 'acceptAllDiffs' does not exist on type 'typeof FileService'. Did you mean 'getAllDiffs'?
+src/components/DiffViewer.tsx(712,19): error TS2551: Property 'rejectAllDiffs' does not exist on type 'typeof FileService'. Did you mean 'getAllDiffs'?
+src/components/EditorGrid.tsx(1707,53): error TS2345: Argument of type '"warning"' is not assignable to parameter of type 'ToastType | undefined'.
+src/components/Git/GitStashView.tsx(118,18): error TS2345: Argument of type 'string[]' is not assignable to parameter of type 'SetStateAction<GitStash[]>'.
+  Type 'string[]' is not assignable to type 'GitStash[]'.
+    Type 'string' is not assignable to type 'GitStash'.
+src/components/KeyboardShortcutsViewer.tsx(235,15): error TS2353: Object literal may only specify known properties, and ''&:hover'' does not exist in type 'Properties<string | number, string & {}>'.
+src/components/LinkHoverCard.tsx(148,13): error TS2322: Type 'string | null | undefined' is not assignable to type 'string | undefined'.
+  Type 'null' is not assignable to type 'string | undefined'.
+src/components/LinkHoverCard.tsx(312,59): error TS2339: Property 'style' does not exist on type 'Element'.
+src/components/LLMChat.tsx(2281,67): error TS2339: Property 'name' does not exist on type 'ToolCall'.
+src/components/LLMChat.tsx(2281,106): error TS2339: Property 'arguments' does not exist on type 'ToolCall'.
+src/components/LLMChat.tsx(2281,134): error TS2339: Property 'arguments' does not exist on type 'ToolCall'.
+src/components/LLMChat.tsx(2436,28): error TS2339: Property 'name' does not exist on type 'ToolCall'.
+src/components/LLMChat.tsx(2437,40): error TS2339: Property 'arguments' does not exist on type 'ToolCall'.
+src/components/LLMChat.tsx(2438,24): error TS2339: Property 'arguments' does not exist on type 'ToolCall'.
+src/components/LLMChat.tsx(2438,54): error TS2339: Property 'arguments' does not exist on type 'ToolCall'.
+src/components/LLMChat.tsx(2750,9): error TS2322: Type 'Timeout' is not assignable to type 'number'.
+src/components/LLMChat.tsx(3648,9): error TS2304: Cannot find name 'showToast'.
+src/components/LLMChat.tsx(4094,20): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(timeoutId: string | number | Timeout | undefined): void', gave the following error.
+    Argument of type 'Timeout | null' is not assignable to parameter of type 'string | number | Timeout | undefined'.
+      Type 'null' is not assignable to type 'string | number | Timeout | undefined'.
+  Overload 2 of 2, '(id: number | undefined): void', gave the following error.
+    Argument of type 'Timeout | null' is not assignable to parameter of type 'number | undefined'.
+      Type 'null' is not assignable to type 'number | undefined'.
+src/components/LLMChat.tsx(4871,15): error TS2322: Type '{ id: string; name: string; arguments: string | Record<string, any>; }[]' is not assignable to type 'ToolCall[]'.
+  Type '{ id: string; name: string; arguments: string | Record<string, any>; }' is missing the following properties from type 'ToolCall': type, function
+src/components/LLMChat.tsx(5101,71): error TS2339: Property 'name' does not exist on type 'ToolCall'.
+src/components/LLMChat.tsx(5126,71): error TS2339: Property 'name' does not exist on type 'ToolCall'.
+src/components/LLMChat.tsx(5153,71): error TS2339: Property 'name' does not exist on type 'ToolCall'.
+src/components/LLMChat.tsx(5169,71): error TS2339: Property 'name' does not exist on type 'ToolCall'.
+src/components/LLMChat.tsx(5471,27): error TS2353: Object literal may only specify known properties, and 'name' does not exist in type 'ToolCall'.
+src/components/LLMChat.tsx(5897,36): error TS2339: Property 'name' does not exist on type 'ToolCall'.
+src/components/LLMChat.tsx(5898,33): error TS2339: Property 'name' does not exist on type 'ToolCall'.
+src/components/LLMChat.tsx(5901,40): error TS2339: Property 'arguments' does not exist on type 'ToolCall'.
+src/components/LLMChat.tsx(5902,26): error TS2339: Property 'arguments' does not exist on type 'ToolCall'.
+src/components/LLMChat.tsx(5903,41): error TS2339: Property 'arguments' does not exist on type 'ToolCall'.
+src/components/LLMChat.tsx(5906,33): error TS2339: Property 'arguments' does not exist on type 'ToolCall'.
+src/components/LLMChat.tsx(5908,63): error TS2339: Property 'arguments' does not exist on type 'ToolCall'.
+src/components/LLMChat.tsx(6425,5): error TS2322: Type 'Timeout' is not assignable to type 'number'.
+src/components/Resizable.tsx(141,11): error TS2353: Object literal may only specify known properties, and '':hover'' does not exist in type 'Properties<string | number, string & {}>'.
+src/components/Resizable.tsx(164,11): error TS2353: Object literal may only specify known properties, and '':hover'' does not exist in type 'Properties<string | number, string & {}>'.
+src/components/Tabs.tsx(178,51): error TS2345: Argument of type '"warning"' is not assignable to parameter of type 'ToastType | undefined'.
+src/components/Terminal.tsx(79,13): error TS2353: Object literal may only specify known properties, and 'selection' does not exist in type 'ITheme'.
+src/config/envConfig.ts(138,33): error TS7006: Parameter 'v' implicitly has an 'any' type.
+src/config/envConfig.ts(138,55): error TS7006: Parameter 'v' implicitly has an 'any' type.
+src/config/envConfig.ts(198,15): error TS2484: Export declaration conflicts with exported declaration of 'EnvironmentConfig'.
+src/main.tsx(13,3): error TS2322: Type '(_: string, label: string) => Worker | null' is not assignable to type '(workerId: string, label: string) => Worker | Promise<Worker>'.
+  Type 'Worker | null' is not assignable to type 'Worker | Promise<Worker>'.
+    Type 'null' is not assignable to type 'Worker | Promise<Worker>'.
+src/services/AIFileService.ts(6,10): error TS2300: Duplicate identifier 'logger'.
+src/services/AIFileService.ts(14,10): error TS2300: Duplicate identifier 'logger'.
+src/services/AIFileService.ts(450,25): error TS2341: Property 'refreshStructure' is private and only accessible within class 'FileService'.
+src/services/AIFileService.ts(623,11): error TS18047: 'settingsResult' is possibly 'null'.
+src/services/AIFileService.ts(623,26): error TS2339: Property 'success' does not exist on type '{ settings?: any; error?: string | undefined; }'.
+src/services/AIFileService.ts(623,37): error TS18047: 'settingsResult' is possibly 'null'.
+src/services/AIFileService.ts(624,11): error TS18047: 'settingsResult' is possibly 'null'.
+src/services/AIFileService.ts(624,55): error TS18047: 'settingsResult' is possibly 'null'.
+src/services/AIFileService.ts(625,33): error TS18047: 'settingsResult' is possibly 'null'.
+src/services/AIFileService.ts(626,13): error TS18047: 'settingsResult' is possibly 'null'.
+src/services/AIFileService.ts(627,31): error TS18047: 'settingsResult' is possibly 'null'.
+src/services/AIFileService.ts(648,25): error TS18047: 'currentSettings' is possibly 'null'.
+src/services/AIFileService.ts(648,41): error TS2339: Property 'success' does not exist on type '{ settings?: any; error?: string | undefined; }'.
+src/services/AIFileService.ts(648,52): error TS18047: 'currentSettings' is possibly 'null'.
+src/services/AIFileService.ts(649,23): error TS18047: 'currentSettings' is possibly 'null'.
+src/services/AIFileService.ts(650,41): error TS2551: Property 'saveSettingsFiles' does not exist on type 'typeof FileService'. Did you mean 'readSettingsFiles'?
+src/services/AIFileService.ts(650,73): error TS18047: 'currentSettings' is possibly 'null'.
+src/services/AIFileService.ts(727,11): error TS18047: 'settingsResult' is possibly 'null'.
+src/services/AIFileService.ts(727,26): error TS2339: Property 'success' does not exist on type '{ settings?: any; error?: string | undefined; }'.
+src/services/AIFileService.ts(727,37): error TS18047: 'settingsResult' is possibly 'null'.
+src/services/AIFileService.ts(728,11): error TS18047: 'settingsResult' is possibly 'null'.
+src/services/AIFileService.ts(728,55): error TS18047: 'settingsResult' is possibly 'null'.
+src/services/AIFileService.ts(729,33): error TS18047: 'settingsResult' is possibly 'null'.
+src/services/AIFileService.ts(730,13): error TS18047: 'settingsResult' is possibly 'null'.
+src/services/AIFileService.ts(731,31): error TS18047: 'settingsResult' is possibly 'null'.
+src/services/CodebaseContextService.ts(14,9): error TS2304: Cannot find name 'logger'.
+src/services/CodebaseContextService.ts(21,9): error TS2304: Cannot find name 'logger'.
+src/services/CodebaseContextService.ts(80,7): error TS2304: Cannot find name 'logger'.
+src/services/ServiceInitializer.ts(85,41): error TS2339: Property 'getStatus' does not exist on type 'LMStudioService'.

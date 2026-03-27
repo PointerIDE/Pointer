@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
 import { FileSystemItem, TabInfo } from '../types';
-import { ChatSession } from './ChatService';
+import { ChatService, ChatSession } from '../services/ChatService';
 
 /**
  * App State Store using Zustand
