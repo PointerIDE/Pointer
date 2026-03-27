@@ -31,6 +31,7 @@ Run a quick environment check with:
 ```bash
 pointer doctor
 pointer doctor --json
+pointer doctor --fix
 ```
 
 The doctor command verifies your Python runtime, config directory, config initialization status, workspace detection, and API reachability.
@@ -41,12 +42,15 @@ Inspect or update config values with:
 pointer config show
 pointer config show api.base_url
 pointer config set api.base_url http://localhost:1234
+pointer config unset ui.show_diffs
+pointer config edit
 ```
 
 Show the current environment with:
 
 ```bash
 pointer status
+pointer status --json
 ```
 
 Manage codebase context from top-level commands:
@@ -55,6 +59,7 @@ Manage codebase context from top-level commands:
 pointer context show
 pointer context refresh
 pointer context search TODO
+pointer context files --ext .py
 pointer context config
 ```
 

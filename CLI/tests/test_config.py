@@ -164,3 +164,13 @@ class TestConfig:
         assert config.suggest_values("ui.show_diffs") == ["true", "false"]
         assert config.suggest_values("api.timeout") == ["30"]
         assert config.suggest_values("api.base_url") == ["http://localhost:8000"]
+
+    def test_unset_value_restores_default(self):
+        """Unset should restore a field to its default value."""
+        config = Config()
+        config.ui.show_diffs = False
+
+        restored = config.unset_value("ui.show_diffs")
+
+        assert restored is True
+        assert config.ui.show_diffs is True

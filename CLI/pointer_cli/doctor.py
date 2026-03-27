@@ -58,6 +58,63 @@ def checks_to_dict(checks: List[DoctorCheck]) -> List[Dict[str, Any]]:
     ]
 
 
+def apply_safe_fixes(config: Config, config_path: Optional[str] = None) -> List[str]:
+    """Apply safe, local fixes for common doctor findings."""
+    fixes: List[str] = []
+    ensure_config_dir()
+
+    resolved_config_path = Path(config_path) if config_path else Config.get_default_config_path()
+    if not resolved_config_path.exists():
+        config.save(str(resolved_config_path))
+        fixes.append(f"Created config file at {resolved_config_path}.")
+
+    if not config.is_initialized():
+        config.initialized = True
+        config.save(str(resolved_config_path))
+        fixes.append("Marked configuration as initialized.")
+
+    if not config.api.base_url.startswith(("http://", "https://")):
+        config.api.base_url = "http://localhost:8000"
+        fixes.append("Reset api.base_url to http://localhost:8000.")
+
+    if not config.api.model_name.strip():
+        config.api.model_name = "gpt-oss-20b"
+        fixes.append("Reset api.model_name to gpt-oss-20b.")
+
+    if config.api.timeout <= 0:
+        config.api.timeout = 30
+        fixes.append("Reset api.timeout to 30.")
+
+    if config.api.max_retries < 0:
+        config.api.max_retries = 3
+        fixes.append("Reset api.max_retries to 3.")
+
+    if config.ui.max_output_lines <= 0:
+        config.ui.max_output_lines = 100
+        fixes.append("Reset ui.max_output_lines to 100.")
+
+    if config.codebase.max_context_files <= 0:
+        config.codebase.max_context_files = 20
+        fixes.append("Reset codebase.max_context_files to 20.")
+
+    if config.codebase.context_depth < 0:
+        config.codebase.context_depth = 3
+        fixes.append("Reset codebase.context_depth to 3.")
+
+    if config.codebase.context_cache_duration < 0:
+        config.codebase.context_cache_duration = 3600
+        fixes.append("Reset codebase.context_cache_duration to 3600.")
+
+    if not config.codebase.context_file_types:
+        config.codebase.context_file_types = [".py", ".js", ".ts", ".jsx", ".tsx", ".md", ".json"]
+        fixes.append("Restored default codebase.context_file_types.")
+
+    if fixes:
+        config.save(str(resolved_config_path))
+
+    return fixes
+
+
 def summarize_results(checks: List[DoctorCheck]) -> tuple[int, int, int]:
     """Return counts for passing, warning, and failing checks."""
     passing = sum(1 for check in checks if check.status == "pass")

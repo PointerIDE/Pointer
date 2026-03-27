@@ -4,6 +4,7 @@ Main entry point for Pointer CLI.
 """
 
 import json
+import os
 from pathlib import Path
 import sys
 from typing import Optional
@@ -16,7 +17,7 @@ from rich.table import Table
 from .codebase_context import CodebaseContext
 from .config import Config
 from .core import PointerCLI
-from .doctor import checks_to_dict, run_doctor, summarize_results
+from .doctor import apply_safe_fixes, checks_to_dict, run_doctor, summarize_results
 from .utils import ensure_config_dir, get_project_root, is_git_repo
 
 app = typer.Typer(
@@ -297,12 +298,57 @@ def config_set_command(
     console.print(f"[green]Updated {key_path} to {new_value!r}.[/green]")
 
 
+@config_app.command("unset")
+def config_unset_command(
+    key_path: str = typer.Argument(
+        ...,
+        help="Dotted config key to reset back to its default value",
+        autocompletion=_complete_config_keys,
+    ),
+    config_path: Optional[str] = typer.Option(None, "--config", "-c", help="Path to config file"),
+) -> None:
+    """Reset a configuration value back to its default."""
+    ensure_config_dir()
+    config = Config.load(config_path)
+
+    try:
+        new_value = config.unset_value(key_path, config_path=config_path)
+        _raise_for_invalid_config(config)
+    except KeyError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=EXIT_CONFIG_ERROR)
+
+    console.print(f"[green]Reset {key_path} to {new_value!r}.[/green]")
+
+
+@config_app.command("edit")
+def config_edit_command(
+    config_path: Optional[str] = typer.Option(None, "--config", "-c", help="Path to config file"),
+) -> None:
+    """Open the config file in the default editor, or print its path if opening fails."""
+    ensure_config_dir()
+    resolved_path = Path(config_path) if config_path else Config.get_default_config_path()
+    config = Config.load(str(resolved_path))
+    if not resolved_path.exists():
+        config.save(str(resolved_path))
+
+    try:
+        os.startfile(str(resolved_path))  # type: ignore[attr-defined]
+        console.print(f"[green]Opened config file: {resolved_path}[/green]")
+    except Exception:
+        console.print(f"Config file: {resolved_path}")
+
+
 @app.command("status")
 def status_command(
     config_path: Optional[str] = typer.Option(None, "--config", "-c", help="Path to config file"),
+    json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON output"),
 ) -> None:
     """Show the current CLI environment and configuration status."""
     config = _load_validated_config(config_path)
+    if json_output:
+        console.print(json.dumps(_build_status_payload(config, config_path), indent=2))
+        return
     table = _build_status_table(config, config_path)
     console.print(table)
 
@@ -328,6 +374,23 @@ def _build_status_table(config: Config, config_path: Optional[str] = None) -> Ta
     table.add_row("Context enabled", str(config.codebase.include_context))
 
     return table
+
+
+def _build_status_payload(config: Config, config_path: Optional[str] = None) -> dict:
+    """Create machine-readable status output."""
+    project_root = get_project_root()
+    return {
+        "config_file": config_path or str(Config.get_default_config_path()),
+        "initialized": config.is_initialized(),
+        "current_directory": str(Path.cwd()),
+        "project_root": str(project_root) if project_root else None,
+        "git_repository": is_git_repo(),
+        "api_base_url": config.api.base_url,
+        "model": config.api.model_name,
+        "mode": "auto-run" if config.mode.auto_run_mode else "manual",
+        "show_ai_responses": config.ui.show_ai_responses,
+        "context_enabled": config.codebase.include_context,
+    }
 
 
 @context_app.command("show")
@@ -406,6 +469,42 @@ def context_search_command(
     console.print(table)
 
 
+@context_app.command("files")
+def context_files_command(
+    limit: int = typer.Option(25, "--limit", min=1, help="Maximum number of indexed files to show"),
+    extension: Optional[str] = typer.Option(None, "--ext", help="Optional file extension filter such as .py"),
+    config_path: Optional[str] = typer.Option(None, "--config", "-c", help="Path to config file"),
+) -> None:
+    """List files currently indexed in codebase context."""
+    config, codebase_context = _get_codebase_context(config_path)
+    if not config.codebase.include_context:
+        console.print("[yellow]Codebase context is disabled.[/yellow]")
+        return
+
+    codebase_context.force_refresh()
+    files = list(codebase_context.context_cache.values())
+    if extension:
+        files = [file_info for file_info in files if file_info.extension == extension]
+
+    if not files:
+        message = f"No indexed files found for extension '{extension}'." if extension else "No indexed files found."
+        console.print(f"[yellow]{message}[/yellow]")
+        return
+
+    files.sort(key=lambda file_info: file_info.relative_path)
+
+    table = Table(title="Pointer CLI Context Files")
+    table.add_column("File", style="bold")
+    table.add_column("Type")
+    table.add_column("Lines")
+    table.add_column("Size")
+
+    for file_info in files[:limit]:
+        table.add_row(file_info.relative_path, file_info.extension, str(file_info.lines), file_info.size_formatted)
+
+    console.print(table)
+
+
 @context_app.command("config")
 def context_config_command(
     config_path: Optional[str] = typer.Option(None, "--config", "-c", help="Path to config file"),
@@ -453,10 +552,15 @@ def doctor_command(
     config_path: Optional[str] = typer.Option(None, "--config", "-c", help="Path to config file"),
     timeout: float = typer.Option(2.0, "--timeout", help="HTTP timeout in seconds for API connectivity checks"),
     json_output: bool = typer.Option(False, "--json", help="Emit machine-readable JSON output"),
+    fix: bool = typer.Option(False, "--fix", help="Apply safe local fixes for common config issues before checking"),
 ) -> None:
     """Run basic health checks for the local Pointer CLI setup."""
     ensure_config_dir()
     config = Config.load(config_path)
+    applied_fixes = []
+    if fix:
+        applied_fixes = apply_safe_fixes(config, config_path=config_path)
+        config = Config.load(config_path)
     checks = run_doctor(config, config_path=config_path, timeout=timeout)
     passing, warnings, failing = summarize_results(checks)
 
@@ -470,6 +574,7 @@ def doctor_command(
                         "failures": failing,
                     },
                     "checks": checks_to_dict(checks),
+                    "fixes": applied_fixes,
                 },
                 indent=2,
             )
@@ -477,6 +582,13 @@ def doctor_command(
         if failing:
             raise typer.Exit(code=EXIT_DEPENDENCY_ERROR)
         return
+
+    if applied_fixes:
+        fix_table = Table(title="Applied Fixes")
+        fix_table.add_column("Fix", overflow="fold")
+        for item in applied_fixes:
+            fix_table.add_row(item)
+        console.print(fix_table)
 
     table = Table(title="Pointer CLI Doctor")
     table.add_column("Check", style="bold")

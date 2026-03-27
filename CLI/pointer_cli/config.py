@@ -226,6 +226,14 @@ class Config(BaseModel):
         self.save(config_path)
         return coerced_value
 
+    def unset_value(self, key_path: str, config_path: Optional[str] = None) -> Any:
+        """Reset a configuration value back to its default."""
+        target, field_name = self._resolve_key_path(key_path)
+        default_value = self._get_default_value(target, field_name)
+        setattr(target, field_name, default_value)
+        self.save(config_path)
+        return default_value
+
     def _resolve_key_path(self, key_path: str) -> tuple[BaseModel, str]:
         """Resolve a dotted config key into a model instance and field name."""
         parts = key_path.split(".")
@@ -309,3 +317,10 @@ class Config(BaseModel):
             return parsed
 
         return [item.strip() for item in stripped.split(",") if item.strip()]
+
+    def _get_default_value(self, target: BaseModel, field_name: str) -> Any:
+        """Read the default value for a field from its Pydantic model."""
+        field_info = target.__class__.model_fields[field_name]
+        if field_info.default_factory is not None:
+            return field_info.default_factory()
+        return field_info.default

@@ -3,7 +3,7 @@ Tests for Pointer CLI doctor checks.
 """
 
 from pointer_cli.config import Config
-from pointer_cli.doctor import DoctorCheck, run_doctor, summarize_results
+from pointer_cli.doctor import DoctorCheck, apply_safe_fixes, run_doctor, summarize_results
 
 
 class DummyResponse:
@@ -99,3 +99,20 @@ class TestDoctor:
 
         assert check_map["API endpoint"].status == "warn"
         assert "Could not reach" in check_map["API endpoint"].details
+
+    def test_apply_safe_fixes_restores_invalid_defaults(self, tmp_path):
+        """Safe fixes should restore obvious invalid config values."""
+        config_path = tmp_path / "config.json"
+        config = Config()
+        config.api.base_url = "localhost:8000"
+        config.api.model_name = ""
+        config.api.timeout = 0
+        config.initialized = False
+
+        fixes = apply_safe_fixes(config, config_path=str(config_path))
+
+        assert fixes
+        assert config.api.base_url == "http://localhost:8000"
+        assert config.api.model_name == "gpt-oss-20b"
+        assert config.api.timeout == 30
+        assert config.initialized is True
