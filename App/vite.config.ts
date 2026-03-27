@@ -25,6 +25,21 @@ export default defineConfig({
         changeOrigin: true,
         secure: false,
       },
+      '/read-settings-files': {
+        target: 'http://127.0.0.1:23816',
+        changeOrigin: true,
+        secure: false,
+      },
+      '/save-settings-files': {
+        target: 'http://127.0.0.1:23816',
+        changeOrigin: true,
+        secure: false,
+      },
+      '/api': {
+        target: 'http://127.0.0.1:23816',
+        changeOrigin: true,
+        secure: false,
+      },
       '/ws': {
         target: 'http://127.0.0.1:23816',
         changeOrigin: true,

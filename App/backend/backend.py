@@ -41,19 +41,17 @@ from tools_handlers import handle_tool_call, TOOL_DEFINITIONS
 # Import codebase indexer
 from codebase_indexer import CodebaseIndexer
 
-# Load environment variables
-load_dotenv()
+# Load environment variables with explicit UTF-8 encoding
+try:
+    load_dotenv(encoding='utf-8')
+except UnicodeDecodeError:
+    # Fallback: try to load without encoding specification
+    load_dotenv()
 
 app = FastAPI()
 
 # Add CORS middleware to allow frontend communication
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # In production, specify exact origins
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# (CORS is configured later in this file as well; avoid duplicate middleware registration.)
 
 # Initialize Qt application with error handling
 try:
@@ -69,8 +67,12 @@ except Exception as e:
 # Initialize GitHub OAuth
 try:
     github_oauth = GitHubOAuth()
+    print("GitHub OAuth initialized successfully")
 except ValueError as e:
     print(f"Warning: GitHub OAuth not configured: {str(e)}")
+    github_oauth = None
+except Exception as e:
+    print(f"Warning: GitHub OAuth initialization failed: {str(e)}")
     github_oauth = None
 
 # Global codebase indexer instance
@@ -681,11 +683,23 @@ app.include_router(git_router)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    # For a local desktop app there is usually no need for credentialed requests.
+    # Disable cookies/credentials to reduce risk from unexpected cross-origin requests.
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
     expose_headers=["X-Filename", "X-Full-Path"],  # Explicitly expose our custom headers
 )
+
+# Global exception handler for HTTPException to ensure JSON responses
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """Custom exception handler to return JSON for all HTTP errors."""
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail},
+        headers={"Content-Type": "application/json"}
+    )
 
 class FileInfo(BaseModel):
     id: str
@@ -763,7 +777,7 @@ class CommandExecutionRequest(BaseModel):
 
 # Request model for reading settings files
 class SettingsRequest(BaseModel):
-    settingsDir: str  # Directory containing settings files
+    settingsDir: str = ""  # Directory containing settings files (optional, backend uses its own path)
 
 # Request model for saving settings files
 class SaveSettingsRequest(BaseModel):
@@ -966,6 +980,82 @@ def scan_directory(path: str, parent_id: str | None = None) -> dict:
         "path": path
     }
 
+
+# --- Frontend compatibility endpoints ---
+# The React frontend uses a couple of small REST helpers (not the tool API).
+# Implement them here as thin wrappers around the existing workspace logic.
+
+@app.get("/list-directory")
+async def list_directory(path: str):
+    """
+    List the direct entries of a directory.
+
+    Returns: { contents: string[] }
+    """
+    if not base_directory:
+        raise HTTPException(status_code=400, detail="No directory opened")
+
+    try:
+        normalized_base = os.path.abspath(base_directory)
+
+        # Empty path means "workspace root"
+        if path is None or path.strip() == "":
+            full_path = normalized_base
+        else:
+            # Resolve relative paths against the current workspace
+            if os.path.isabs(path):
+                full_path = os.path.abspath(path)
+            else:
+                full_path = os.path.abspath(os.path.join(base_directory, path))
+
+            # Security: for both relative and absolute inputs, require "inside workspace"
+            if os.path.commonpath([os.path.normcase(normalized_base), os.path.normcase(full_path)]) != os.path.normcase(normalized_base):
+                raise HTTPException(status_code=403, detail="Access denied")
+
+        if not os.path.exists(full_path):
+            raise HTTPException(status_code=404, detail="Directory not found")
+        if not os.path.isdir(full_path):
+            raise HTTPException(status_code=400, detail="Path is not a directory")
+
+        contents = sorted(os.listdir(full_path))
+        return {"contents": contents}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/file-exists")
+async def file_exists(request: PathRequest):
+    """
+    Check whether a file exists within the current workspace.
+
+    Returns: { exists: boolean }
+    """
+    if not base_directory:
+        raise HTTPException(status_code=400, detail="No directory opened")
+
+    try:
+        if not request.path:
+            return {"exists": False}
+
+        normalized_base = os.path.abspath(base_directory)
+
+        if os.path.isabs(request.path):
+            full_path = os.path.abspath(request.path)
+        else:
+            full_path = os.path.abspath(os.path.join(base_directory, request.path))
+
+        # Security: only allow paths inside the workspace
+        if os.path.commonpath([os.path.normcase(normalized_base), os.path.normcase(full_path)]) != os.path.normcase(normalized_base):
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        return {"exists": os.path.isfile(full_path)}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/test-backend")
 async def test_backend():
     """Test endpoint to verify the backend is running."""
@@ -998,6 +1088,18 @@ async def health_check():
             status_code=500,
             content={"status": "unhealthy", "error": str(e)}
         )
+
+
+@app.post("/ide-state/update-cursor")
+async def ide_state_update_cursor(payload: dict):
+    """
+    Frontend compatibility endpoint.
+
+    Pointer's Discord Rich Presence is updated via Electron IPC, not this backend,
+    but the UI does a POST to keep the editor state in sync.
+    """
+    # Payload shape: { file_path: string, line: number, column: number }
+    return {"success": True}
 
 @app.post("/fetch_webpage")
 async def fetch_webpage_endpoint(request: dict):
@@ -1075,42 +1177,115 @@ async def read_directory(path: str):
     return scan_directory(full_path)
 
 @app.post("/save-file")
-async def save_file(request: SaveFileRequest):
-    """Save content to a file."""
+async def save_file(request: Request):
+    """
+    Save content to a file.
+
+    Compatibility:
+    - JSON body: { "path": "...", "content": "..." }  (used by FileSystemService)
+    - Raw body: <string>, with query param ?path=...   (used by FileChangeEventService)
+    """
     if not base_directory:
         raise HTTPException(status_code=400, detail="No directory opened")
 
     try:
-        # For paths starting with 'file_', this is a file ID format
-        # Extract the actual path from the ID if needed
-        path = request.path
-        if path.startswith('file_'):
-            # The path is everything after 'file_'
+        query_path = request.query_params.get("path")
+        content_type = (request.headers.get("content-type") or "").lower()
+        body_bytes = await request.body()
+        body_text = body_bytes.decode("utf-8", errors="replace") if body_bytes else ""
+
+        path: str | None = None
+        content: str | None = None
+
+        # Prefer JSON when content-type says so
+        if content_type.startswith("application/json"):
+            payload = await request.json()
+            if isinstance(payload, dict):
+                path = payload.get("path") or query_path
+                content = payload.get("content")
+
+        # If not JSON, try to handle the raw-text variant
+        if path is None and query_path:
+            path = query_path
+            content = body_text
+
+        # As a fallback, attempt JSON parsing even if the content-type was not set
+        if path is None and body_text:
+            try:
+                payload = json.loads(body_text)
+                if isinstance(payload, dict):
+                    path = payload.get("path") or query_path
+                    content = payload.get("content")
+            except Exception:
+                pass
+
+        if not path:
+            raise HTTPException(status_code=400, detail="No file path provided")
+        if content is None:
+            content = ""
+
+        # For paths starting with 'file_', treat it as file-id format
+        if path.startswith("file_"):
             path = path[5:]
 
-        # Use the path as is, it should be an absolute path or relative to base_directory
+        normalized_base = os.path.abspath(base_directory)
+
         if os.path.isabs(path):
-            full_path = path
+            full_path = os.path.abspath(path)
         else:
             full_path = os.path.abspath(os.path.join(base_directory, path))
-            
-        
-        # Security check - make sure the path is within base directory if it's a relative path
-        # For absolute paths, skip this check as the user explicitly selected the file
-        if not os.path.isabs(request.path) and not full_path.startswith(base_directory):
+
+        # Security: ensure the resolved path stays inside the workspace
+        if os.path.commonpath([os.path.normcase(normalized_base), os.path.normcase(full_path)]) != os.path.normcase(normalized_base):
             raise HTTPException(status_code=403, detail="Access denied")
 
-        # Create directories if they don't exist
-        os.makedirs(os.path.dirname(full_path), exist_ok=True)
-        
-        with open(full_path, 'w', encoding='utf-8') as f:
-            f.write(request.content)
+        # Create parent directories if they don't exist
+        parent_dir = os.path.dirname(full_path)
+        if parent_dir:
+            os.makedirs(parent_dir, exist_ok=True)
+
+        with open(full_path, "w", encoding="utf-8") as f:
+            f.write(content)
 
         # Update the cache if the file is cached
         if full_path in file_cache:
-            file_cache[full_path] = request.content
+            file_cache[full_path] = content
 
-        return {'success': True}
+        return {"success": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/create-dir")
+async def create_dir(path: str):
+    """
+    Create directory recursively (frontend compatibility).
+
+    Frontend usage: POST /create-dir?path=<dir>
+    Returns: { success: true }
+    """
+    if not base_directory:
+        raise HTTPException(status_code=400, detail="No directory opened")
+    if path is None or path.strip() == "":
+        raise HTTPException(status_code=400, detail="Path is required")
+
+    try:
+        normalized_base = os.path.abspath(base_directory)
+        if os.path.isabs(path):
+            full_path = os.path.abspath(path)
+        else:
+            full_path = os.path.abspath(os.path.join(base_directory, path))
+
+        # Security: only allow inside the workspace
+        if os.path.commonpath([os.path.normcase(normalized_base), os.path.normcase(full_path)]) != os.path.normcase(normalized_base):
+            raise HTTPException(status_code=403, detail="Access denied")
+
+        os.makedirs(full_path, exist_ok=True)
+        return {"success": True}
+    except HTTPException:
+        raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -1896,6 +2071,54 @@ async def get_file_contents(files: List[str]):
 async def execute_command(request: CommandExecutionRequest):
     """Execute a terminal command and return the output."""
     try:
+        if not base_directory:
+            raise HTTPException(status_code=400, detail="No directory opened")
+
+        # Basic input hardening
+        command = (request.command or "").strip()
+        if not command:
+            raise HTTPException(status_code=400, detail="Command is required")
+
+        if len(command) > 5000:
+            return {
+                "executionId": request.executionId or f"auto_{int(time.time())}",
+                "error": "Command too long",
+                "command": request.command,
+                "timestamp": int(time.time())
+            }
+
+        # Block command injection via control characters
+        if any(ch in command for ch in ["\n", "\r", "\x00"]):
+            return {
+                "executionId": request.executionId or f"auto_{int(time.time())}",
+                "error": "Invalid command characters",
+                "command": request.command,
+                "timestamp": int(time.time())
+            }
+
+        # Keep timeout within a reasonable range to reduce resource abuse
+        timeout = request.timeout if request.timeout is not None else 30
+        timeout = max(1, min(int(timeout), 120))
+
+        # Security: prevent destructive/system-altering commands
+        dangerous_commands = [
+            "rm", "del", "format", "fdisk", "mkfs", "dd",
+            "shutdown", "reboot", "halt",
+            "kill -9", "killall", "kill ",
+            "chmod 777", "chown", "passwd",
+            "su ", "sudo su", "sudo -i", "sudo rm", "sudo ",
+            "net user", "netsh ",
+        ]
+        command_lower = command.lower()
+        for dangerous in dangerous_commands:
+            if dangerous in command_lower:
+                return {
+                    "executionId": request.executionId or f"auto_{int(time.time())}",
+                    "error": f"Command blocked for security reasons: '{dangerous}' not allowed",
+                    "command": request.command,
+                    "timestamp": int(time.time())
+                }
+
         # Set up process with timeout
         process = None
         output = ""
@@ -1904,9 +2127,17 @@ async def execute_command(request: CommandExecutionRequest):
         
         # Set working directory using the get_working_directory function
         cwd = get_working_directory()
+        if cwd and base_directory:
+            try:
+                normalized_base = os.path.abspath(base_directory)
+                normalized_cwd = os.path.abspath(cwd)
+                if not normalized_cwd.startswith(normalized_base):
+                    cwd = normalized_base
+            except Exception:
+                cwd = base_directory
         
         # Log execution info
-        print(f"Executing command: {request.command} (ID: {execution_id}, timeout: {request.timeout}s, cwd: {cwd})")
+        print(f"Executing command: {command} (ID: {execution_id}, timeout: {timeout}s, cwd: {cwd})")
         
         # Create a safe environment for running commands
         env = os.environ.copy()
@@ -1916,7 +2147,6 @@ async def execute_command(request: CommandExecutionRequest):
             # Execute the command
             if sys.platform == "win32":
                 # Windows-specific command execution
-                command = request.command
                 original_command = command
                 
                 # Enhanced Python detection with multiple variations
@@ -1947,7 +2177,7 @@ $output
                         ["powershell.exe", "-NoProfile", "-Command", wrapped_command],
                         capture_output=True,
                         text=True,
-                        timeout=request.timeout,
+                        timeout=timeout,
                         cwd=cwd,
                         env=env,
                         shell=False
@@ -1962,14 +2192,14 @@ $output
                         ["powershell.exe", "-NoProfile", "-Command", full_command],
                         capture_output=True,
                         text=True,
-                        timeout=request.timeout,
+                        timeout=timeout,
                         cwd=cwd,
                         env=env,
                         shell=False
                     )
             else:
                 # Linux/Mac command execution
-                command = request.command
+                command = command
                 
                 # Enhanced Python detection with multiple variations
                 if any(cmd in command.lower() for cmd in ["python ", "python3 "]):
@@ -1987,7 +2217,7 @@ $output
                     ["bash", "-c", full_command],
                     capture_output=True,
                     text=True,
-                    timeout=request.timeout,
+                    timeout=timeout,
                     cwd=cwd,
                     env=env,
                     shell=False
@@ -2014,7 +2244,7 @@ $output
             print(f"Command execution completed (ID: {execution_id}, status: {status}, output length: {len(output)})")
                     
         except subprocess.TimeoutExpired:
-            error = f"Command timed out after {request.timeout} seconds"
+            error = f"Command timed out after {timeout} seconds"
             print(f"Command execution timed out (ID: {execution_id})")
         except Exception as e:
             error = f"Error executing command: {str(e)}"

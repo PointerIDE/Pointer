@@ -18,9 +18,9 @@ export class ModelDiscoveryService {
    * @returns Promise<ModelInfo[]> Array of available models
    */
   static async getAvailableModels(apiEndpoint: string, apiKey?: string): Promise<ModelInfo[]> {
+    let baseUrl = apiEndpoint;
     try {
       // Ensure the endpoint ends with /v1
-      let baseUrl = apiEndpoint;
       if (!baseUrl.endsWith('/v1')) {
         baseUrl = baseUrl.endsWith('/') 
           ? `${baseUrl}v1` 
@@ -48,7 +48,14 @@ export class ModelDiscoveryService {
       const data: ModelsResponse = await response.json();
       return data.data || [];
     } catch (error) {
-      console.error('Error fetching available models:', error);
+      // Improve diagnostics for endpoint connectivity issues (e.g., local server not running)
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(`Error fetching available models from ${baseUrl}:`, message);
+
+      if (message.includes('Failed to fetch') || message.includes('NetworkError')) {
+        throw new Error(`Unable to reach model endpoint at ${baseUrl}. Please check your endpoint and network.`);
+      }
+
       throw error;
     }
   }

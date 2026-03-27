@@ -139,11 +139,18 @@ async function initDiscordRPC() {
   rpc.on('ready', () => {
     console.log('Discord RPC ready');
     updateRichPresence();
+    // Keep live status refreshed
+    setInterval(updateRichPresence, 15 * 1000);
   });
   
   // Login with client ID
   rpc.login({ clientId: DISCORD_CLIENT_ID })
-    .catch(error => console.error('Discord RPC login failed:', error));
+    .then(() => console.log('Discord RPC login successful'))
+    .catch(error => {
+      console.error('Discord RPC login failed:', error);
+      // disable RPC to avoid repeated attempts
+      discordRpcSettings.enabled = false;
+    });
 }
 
 // Update Discord Rich Presence with current editor info
@@ -153,12 +160,14 @@ function updateRichPresence() {
   try {
     // Check if user is not editing a real file
     const isIdling = !editorInfo.file || editorInfo.file === 'Untitled' || editorInfo.file === 'Welcome';
-    
+    const activeFile = isIdling ? 'Idle' : path.basename(editorInfo.file);
+    const workspaceName = editorInfo.workspace || 'Pointer';
+
     // Replace placeholders in messages
-    const details = replaceVariables(discordRpcSettings.details);
-    const state = replaceVariables(discordRpcSettings.state);
+    const details = isIdling ? `Editing in ${workspaceName}` : `Editing ${activeFile}`;
+    const state = isIdling ? 'Waiting for input' : `Workspace: ${workspaceName}`;
     const largeImageText = replaceVariables(discordRpcSettings.largeImageText);
-    const smallImageText = replaceVariables(discordRpcSettings.smallImageText);
+    const smallImageText = isIdling ? 'Idle mode' : `${activeFile} | Line ${editorInfo.line}:${editorInfo.column}`;
     
     // Determine correct image keys based on language
     let smallImageKey = discordRpcSettings.smallImageKey;
@@ -259,11 +268,20 @@ let splashWindow = null;
 
 // Update splash screen message
 function updateSplashMessage(message) {
-  if (splashWindow) {
-    splashWindow.webContents.executeJavaScript(`
-      document.querySelector('.message').textContent = "${message}";
-    `).catch(err => console.error('Error updating splash message:', err));
+  if (!splashWindow || splashWindow.isDestroyed()) {
+    return;
   }
+
+  const safeMessage = JSON.stringify(message);
+
+  splashWindow.webContents.executeJavaScript(`
+    const messageElement = document.querySelector('.message');
+    if (messageElement) {
+      messageElement.textContent = ${safeMessage};
+    } else {
+      console.warn('Splash message element not found yet');
+    }
+  `).catch(err => console.error('Error updating splash message:', err));
 }
 
 function createSplashScreen() {
@@ -296,7 +314,7 @@ async function checkBackendConnection() {
   const retryDelay = 1000;
   let retries = 0;
 
-  updateSplashMessage('Connecting to backend...');
+  updateSplashMessage('Starting...');
   
   while (retries < maxRetries) {
     try {

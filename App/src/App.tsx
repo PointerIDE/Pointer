@@ -136,6 +136,11 @@ const App: React.FC = () => {
   const [isConnecting, setIsConnecting] = useState(true);
   const [connectionMessage, setConnectionMessage] = useState('');
 
+  // Add backend health status
+  const [backendHealthStatus, setBackendHealthStatus] = useState<'healthy' | 'unhealthy' | 'unknown'>('unknown');
+  const [backendHealthMessage, setBackendHealthMessage] = useState('Backend health status unknown');
+  const [backendHealthLastChecked, setBackendHealthLastChecked] = useState<number | null>(null);
+
   // Add save status state
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving' | 'error' | null>(null);
 
@@ -1320,6 +1325,62 @@ const App: React.FC = () => {
     };
   }, []); // Empty dependency array
 
+  // Periodic backend health check
+  useEffect(() => {
+    let isActive = true;
+
+    const checkBackendHealth = async () => {
+      try {
+        const response = await fetch('http://localhost:23816/health');
+
+        if (!isActive) return;
+
+        const now = Date.now();
+
+        if (response.ok) {
+          const data = await response.json();
+          const status = data?.status === 'healthy' ? 'healthy' : 'unhealthy';
+          const message = status === 'healthy'
+            ? `Backend healthy (${new Date(now).toLocaleTimeString()})`
+            : `Backend unhealthy: ${data?.error || JSON.stringify(data)}`;
+
+          setBackendHealthStatus(status);
+          setBackendHealthMessage(message);
+          setBackendHealthLastChecked(now);
+
+          if (status === 'healthy') {
+            if (isConnecting) setIsConnecting(false);
+            setConnectionMessage('');
+          } else {
+            setConnectionMessage('Backend appears unhealthy. Check logs and settings.');
+          }
+        } else {
+          const text = await response.text();
+          setBackendHealthStatus('unhealthy');
+          setBackendHealthMessage(`Health check failed: ${response.status} ${response.statusText}`);
+          setBackendHealthLastChecked(now);
+          setConnectionMessage(`Health check failed: ${response.statusText}`);
+        }
+      } catch (error: unknown) {
+        if (!isActive) return;
+        const message = error instanceof Error ? error.message : String(error);
+
+        setBackendHealthStatus('unhealthy');
+        setBackendHealthMessage(`Health check error: ${message}`);
+        setBackendHealthLastChecked(Date.now());
+        setConnectionMessage(`Cannot reach backend: ${message}`);
+      }
+    };
+
+    checkBackendHealth();
+    const interval = setInterval(checkBackendHealth, 15000);
+
+    return () => {
+      isActive = false;
+      clearInterval(interval);
+    };
+  }, []);
+
   // Add a function to handle terminal toggle
   const toggleTerminal = () => {
     setFileSystem(prev => ({
@@ -1532,6 +1593,8 @@ const App: React.FC = () => {
           currentFileName={getCurrentFileName()}
           workspaceName={fileSystem.items[fileSystem.rootId]?.name || ''}
           titleFormat={dynamicTitleFormat || settingsData.advanced?.titleFormat || '{filename} - {workspace} - Pointer'}
+          backendHealthStatus={backendHealthStatus}
+          backendHealthMessage={backendHealthMessage}
         />
         <div style={{ flex: 1, display: 'flex', overflow: 'hidden', position: 'relative' }}>
           {/* Sidebar removed - content will now be controlled via titlebar buttons */}

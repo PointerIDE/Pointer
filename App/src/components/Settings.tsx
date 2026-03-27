@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import tinycolor from 'tinycolor2';
 import { FileSystemService } from '../services/FileSystemService';
 import { ModelConfig, EditorSettings, ThemeSettings, AppSettings, ModelAssignments, DiscordRpcSettings, PromptsSettings, CustomRule } from '../types';
 import * as monaco from 'monaco-editor';
@@ -529,6 +530,7 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
   const [isThemeLibraryVisible, setIsThemeLibraryVisible] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [availableModels, setAvailableModels] = useState<ModelInfo[]>([]);
+  const [availableModelsError, setAvailableModelsError] = useState<string | null>(null);
   const [isLoadingModels, setIsLoadingModels] = useState(false);
   const [showModelSuggestions, setShowModelSuggestions] = useState(false);
   const [filteredModels, setFilteredModels] = useState<ModelInfo[]>([]);
@@ -999,6 +1001,37 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
     }
   };
 
+  const applyAutoPaletteFromAccent = () => {
+    const accentColor = themeSettings.customColors.accentColor || '#0078d4';
+    const parsed = tinycolor(accentColor);
+    if (!parsed.isValid()) return;
+
+    const light = parsed.clone().lighten(20).toHexString();
+    const medium = parsed.clone().lighten(10).toHexString();
+    const dark = parsed.clone().darken(20).toHexString();
+
+    setThemeSettings(prev => ({
+      ...prev,
+      customColors: {
+        ...prev.customColors,
+        bgPrimary: parsed.clone().darken(15).toHexString(),
+        bgSecondary: parsed.clone().darken(10).toHexString(),
+        bgTertiary: light,
+        textPrimary: parsed.isLight() ? '#0d0d0d' : '#ffffff',
+        textSecondary: parsed.isLight() ? '#2e2e2e' : '#cccccc',
+        borderColor: medium,
+        accentHover: parsed.clone().desaturate(10).toHexString(),
+        titlebarBg: dark,
+        statusbarBg: dark,
+        statusbarFg: parsed.isLight() ? '#000000' : '#f5f5f5',
+      }
+    }));
+
+    setHasUnsavedChanges(true);
+    window.dispatchEvent(new Event('theme-changed'));
+  };
+
+
   const handleDiscordRpcSettingChange = (field: keyof DiscordRpcSettings, value: any) => {
     setDiscordRpcSettings((prev) => {
       const updated = {
@@ -1122,8 +1155,10 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
       const models = await ModelDiscoveryService.getAvailableModels(apiEndpoint, apiKey);
       setAvailableModels(models);
     } catch (error) {
-      console.error('Failed to fetch available models:', error);
+      const userMessage = error instanceof Error ? error.message : String(error);
+      console.warn('Failed to fetch available models:', userMessage);
       setAvailableModels([]);
+      setAvailableModelsError(userMessage);
     } finally {
       setIsLoadingModels(false);
     }
@@ -1301,10 +1336,16 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
       });
       
     } catch (error) {
-      console.error('Autocompletion connection test failed:', error);
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(`Autocompletion connection test failed (endpoint: ${testEndpoint}):`, message);
+
+      const userMessage = message.includes('Unable to reach model endpoint')
+        ? `${message} Ensure Pointer backend or local AI adapter is running.`
+        : message;
+
       setAutocompletionConnectionStatus({
         connected: false,
-        error: error instanceof Error ? error.message : 'Unknown error occurred',
+        error: userMessage,
         testing: false,
         url: testEndpoint
       });
@@ -1785,6 +1826,12 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                             <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
                               {autocompletionConnectionStatus.testing && modelAssignments.autocompletion === activeTab && (
                                 <span>Testing connection...</span>
+                              )}
+                              {autocompletionConnectionStatus.error && modelAssignments.autocompletion === activeTab && (
+                                <span style={{ color: '#ff4d4f' }}>Error: {autocompletionConnectionStatus.error}</span>
+                              )}
+                              {availableModelsError && modelAssignments.autocompletion === activeTab && (
+                                <span style={{ color: '#ffa500' }}>Model discovery warning: {availableModelsError}</span>
                               )}
                             </p>
                           </div>
@@ -2983,6 +3030,27 @@ export function Settings({ isVisible, onClose, initialSettings }: SettingsProps)
                             variable="--activity-bar-fg"
                           />
                         </div>
+                      </div>
+
+                      <div style={{ marginTop: '12px', border: '1px dashed var(--border-primary)', padding: '12px', borderRadius: '8px' }}>
+                        <h5 style={{ fontSize: '13px', margin: '0 0 8px 0' }}>Smart Palette</h5>
+                        <p style={{ fontSize: '12px', color: 'var(--text-secondary)', margin: '0 0 8px 0' }}>
+                          Easily generate accessible text + border colors from your accent color.
+                        </p>
+                        <button
+                          onClick={applyAutoPaletteFromAccent}
+                          style={{
+                            padding: '8px 12px',
+                            borderRadius: '6px',
+                            border: '1px solid var(--border-primary)',
+                            background: 'var(--bg-accent)',
+                            color: 'white',
+                            cursor: 'pointer',
+                            fontSize: '12px',
+                          }}
+                        >
+                          Generate from Accent
+                        </button>
                       </div>
                         </div>
 

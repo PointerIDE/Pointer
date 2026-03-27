@@ -85,8 +85,7 @@ async function main() {
   let backendProcess = null;
   if (!backendRunning) {
     console.log(chalk.yellow('Backend not running, starting it...'));
-    backendProcess = startProcess('python3', ['backend/run.py'], 'Backend', 'yellow');
-    
+    backendProcess = startProcess('py', ['backend/run.py'], 'Backend', 'yellow');
     // Wait for backend to start
     console.log(chalk.yellow('Waiting for backend to start...'));
     try {
@@ -106,9 +105,7 @@ async function main() {
   console.log(chalk.blue(`Using port ${serverPort} for the server.`));
   
   // Start server with custom port
-  const serverProcess = startProcess('yarn', ['dev:server'], 'Server', 'blue', { 
-    VITE_PORT: serverPort.toString() 
-  });
+  const serverProcess = startProcess('yarn.cmd', ['dev:server'], 'Server', 'blue', { VITE_PORT: serverPort.toString() });
   
   // Wait a bit for the server to start if not skipping checks
   if (!skipChecks) {
@@ -126,7 +123,7 @@ async function main() {
   }
   
   // Start electron with custom server port
-  const electronProcess = startProcess('yarn', ['dev:electron'], 'Electron', 'magenta', {
+  const electronProcess = startProcess('yarn.cmd', ['dev:electron'], 'Electron', 'magenta', {
     VITE_DEV_SERVER_PORT: serverPort.toString(),
     SKIP_CONNECTION_CHECKS: skipChecks ? 'true' : 'false'
   });

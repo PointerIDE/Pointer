@@ -472,7 +472,21 @@ export class FileSystemService {
       });
 
       if (!response.ok) {
+        const contentType = response.headers.get('content-type');
+        if (contentType?.includes('text/html')) {
+          console.error(`Backend returned HTML instead of JSON (Status: ${response.status})`);
+          console.error('This usually means the backend server is not running or encountered an error.');
+          return { success: false, settings: {} };
+        }
         throw new Error(`Failed to read settings files: ${response.statusText}`);
+      }
+
+      const contentType = response.headers.get('content-type');
+      if (!contentType?.includes('application/json')) {
+        const text = await response.text();
+        console.error(`Backend returned non-JSON response: ${contentType}`);
+        console.error('Response preview:', text.substring(0, 100));
+        return { success: false, settings: {} };
       }
 
       const data = await response.json();
@@ -496,6 +510,12 @@ export class FileSystemService {
       });
 
       if (!response.ok) {
+        const contentType = response.headers.get('content-type');
+        if (contentType?.includes('text/html')) {
+          console.error(`Backend returned HTML instead of JSON (Status: ${response.status})`);
+          console.error('This usually means the backend server is not running or encountered an error.');
+          return { success: false };
+        }
         throw new Error(`Failed to save settings files: ${response.statusText}`);
       }
 

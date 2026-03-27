@@ -4,6 +4,8 @@ A modern, AI-powered code editor built with Electron, React, TypeScript, and Pyt
 
 ![Pointer Editor](https://img.shields.io/badge/Electron-App-blue) ![Python](https://img.shields.io/badge/Python-Backend-green) ![React](https://img.shields.io/badge/React-Frontend-blue) ![TypeScript](https://img.shields.io/badge/TypeScript-Typed-blue)
 
+> **⚠️ Latest Updates:** Settings loading fixed with improved error handling | New comprehensive build scripts added | Enhanced proxy configuration for API endpoints
+
 ## ✨ Features
 
 ### 🎨 **Professional Interface**
@@ -93,14 +95,118 @@ A modern, AI-powered code editor built with Electron, React, TypeScript, and Pyt
 
 6. **Launch Application**
    ```bash
-   # Easy start (recommended)
+   # Easy start (recommended) - uses new build scripts
    yarn dev
+   
+   # Alternative: Use automated build script
+   # Windows (CMD):
+   build.bat
+   
+   # Windows (PowerShell):
+   .\build.ps1
+   
+   # macOS/Linux:
+   ./build.sh
    
    # Alternative: Manual start
    node start-pointer.js
    ```
 
-## 🔧 Advanced Setup
+### 🎯 Using New Build Scripts (Recommended)
+
+We've added comprehensive build scripts with enhanced error handling and automatic troubleshooting:
+
+```bash
+# Windows (Command Prompt)
+build.bat [OPTIONS]
+
+# Windows (PowerShell)
+.\build.ps1 [OPTIONS]
+
+# macOS/Linux
+./build.sh [OPTIONS]
+```
+
+**Available Options:**
+- `--skip-checks` / `-s` - Skip prerequisite checks (faster)
+- `--debug` / `-d` - Enable debug mode with verbose output
+- `--clean` / `-c` - Clean installation (removes node_modules)
+- `--background` / `-b` - Run components in background
+- `--help` / `-h` - Show help message
+
+**Examples:**
+```bash
+build.bat --clean --debug           # Windows: Clean install with debug
+./build.sh --skip-checks            # macOS/Linux: Skip checks for speed
+.\build.ps1 -CleanInstall -Debug    # PowerShell: Clean install with debug
+```
+
+See [BUILD_SCRIPTS_README.md](./BUILD_SCRIPTS_README.md) for detailed documentation.
+
+## � Recent Changes & Improvements
+
+### 🔧 Fixed Issues
+
+#### Settings Loading Error
+**Problem:** `SyntaxError: Unexpected token '<', "<!DOCTYPE "..."`
+
+**Solution:** 
+- Added global HTTP exception handler in backend (`backend.py`) to ensure JSON responses
+- Improved frontend error handling in `FileSystemService.ts` to detect and gracefully handle HTML responses
+- Added detailed error logging with response preview for debugging
+
+**Files Modified:**
+- `backend/backend.py` - Added `@app.exception_handler(HTTPException)` for JSON error responses
+- `src/services/FileSystemService.ts` - Enhanced error handling with content-type validation
+
+#### API Endpoint Proxying
+**Problem:** Frontend couldn't reach backend in development mode
+
+**Solution:**
+- Added comprehensive proxy configuration in `vite.config.ts` for all API endpoints
+- Proxies now include: `/api`, `/read-settings-files`, `/save-settings-files`, `/execute-command`, `/read-file`, `/ws`
+
+**Files Modified:**
+- `vite.config.ts` - Added multiple proxy entries for backend communication
+
+#### Settings Request Model
+**Problem:** Optional parameters causing validation errors
+
+**Solution:**
+- Made `settingsDir` parameter optional with default empty string in `SettingsRequest` model
+- Backend now uses its own cross-platform path resolution
+
+**Files Modified:**
+- `backend/backend.py` - Updated request model to handle optional parameters
+
+### ✨ New Features
+
+#### Comprehensive Build Scripts
+Three unified build scripts with automatic error handling and troubleshooting:
+
+**Scripts Created:**
+- `build.bat` - Windows Command Prompt (CMD.exe)
+- `build.ps1` - Windows PowerShell (PS 5.0+)
+- `build.sh` - macOS/Linux Bash
+
+**Features:**
+- ✅ Automatic prerequisite checking (Node.js, Python, Yarn/npm, Git)
+- ✅ Port conflict detection
+- ✅ Platform-specific requirements installation
+- ✅ Error handling with automatic alternatives (npm fallback, Python3/Python)
+- ✅ Debug mode with verbose output
+- ✅ Clean installation option
+- ✅ Integrated troubleshooting guide
+- ✅ Colorized output with timestamps
+- ✅ Interactive startup assistant
+
+**Files Created:**
+- `build.bat` - Windows batch script
+- `build.ps1` - PowerShell script
+- `build.sh` - Bash script
+- `BUILD_SCRIPTS_README.md` - Comprehensive documentation
+
+## �🔧 Advanced Setup
 
 ### Manual Component Startup
 

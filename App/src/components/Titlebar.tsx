@@ -18,6 +18,8 @@ interface TitlebarProps {
   currentFileName?: string;
   workspaceName?: string;
   titleFormat?: string;
+  backendHealthStatus?: 'healthy' | 'unhealthy' | 'unknown';
+  backendHealthMessage?: string;
 }
 
 interface SystemInfo {
@@ -67,7 +69,9 @@ const Titlebar: React.FC<TitlebarProps> = ({
   terminalOpen,
   currentFileName = "",
   workspaceName = "",
-  titleFormat = "{filename} - {workspace} - Pointer"
+  titleFormat = "{filename} - {workspace} - Pointer",
+  backendHealthStatus = 'unknown',
+  backendHealthMessage = 'Backend health status unknown'
 }) => {
   const [isMaximized, setIsMaximized] = useState(false);
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
@@ -172,6 +176,11 @@ const Titlebar: React.FC<TitlebarProps> = ({
       <div className={`titlebar-left ${isWindows ? 'windows' : 'macos'}`}>
         <img src={logo} alt="Pointer Logo" className="titlebar-logo" />
         <div className="titlebar-divider" />
+
+        <div className={`titlebar-backend-health ${backendHealthStatus}`}>
+          <span className="health-dot" />
+          <span className="health-text">{backendHealthMessage}</span>
+        </div>
         
         <div className="file-menu-container">
           <button 
@@ -310,19 +319,17 @@ const Titlebar: React.FC<TitlebarProps> = ({
         </div>
       </div>
       <div className={`titlebar-right ${isWindows ? 'windows' : 'macos'}`}>
-        {!isWindows && (
-          <div className="titlebar-controls">
-            <button className="titlebar-button" onClick={handleMinimize}>
-              &#x2212;
-            </button>
-            <button className="titlebar-button" onClick={handleMaximize}>
-              {isMaximized ? '❐' : '□'}
-            </button>
-            <button className="titlebar-button close" onClick={handleClose}>
-              ✕
-            </button>
-          </div>
-        )}
+        <div className="titlebar-controls">
+          <button className="titlebar-button" onClick={handleMinimize}>
+            −
+          </button>
+          <button className="titlebar-button" onClick={handleMaximize}>
+            {isMaximized ? '❐' : '□'}
+          </button>
+          <button className="titlebar-button close" onClick={handleClose}>
+            ✕
+          </button>
+        </div>
       </div>
     </div>
   );
