@@ -1,0 +1,180 @@
+/* Breadcrumb Navigation Styles */
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  padding: 6px 8px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  height: 32px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  user-select: none;
+  font-size: 12px;
+}
+
+.breadcrumb-items {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
+.breadcrumb-separator {
+  color: var(--text-secondary);
+  margin: 0 2px;
+  opacity: 0.6;
+}
+
+.breadcrumb-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 3px;
+  transition: all 0.15s ease;
+  font-family: inherit;
+  white-space: nowrap;
+  max-width: 200px;
+}
+
+.breadcrumb-item:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+}
+
+.breadcrumb-item:active:not(:disabled) {
+  background: var(--bg-selected);
+  color: var(--accent-color);
+}
+
+.breadcrumb-item.hovered {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  transform: translateY(-1px);
+}
+
+.breadcrumb-item:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.breadcrumb-icon {
+  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+}
+
+.breadcrumb-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Ellipsis Menu */
+.breadcrumb-ellipsis {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.breadcrumb-ellipsis-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 6px;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-radius: 3px;
+  transition: all 0.15s ease;
+  font-size: 12px;
+  font-weight: bold;
+  min-width: 24px;
+  height: 24px;
+}
+
+.breadcrumb-ellipsis-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+}
+
+.breadcrumb-ellipsis-menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  max-height: 300px;
+  overflow-y: auto;
+  z-index: 1000;
+  min-width: 250px;
+  margin-top: 2px;
+}
+
+.breadcrumb-ellipsis-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.1s ease;
+  border-left: 2px solid transparent;
+}
+
+.breadcrumb-ellipsis-item:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-left: 2px solid var(--accent-color);
+}
+
+.breadcrumb-ellipsis-text {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Scrollbar styling for breadcrumb */
+.breadcrumb::-webkit-scrollbar {
+  height: 6px;
+}
+
+.breadcrumb::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.breadcrumb::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 3px;
+}
+
+.breadcrumb::-webkit-scrollbar-thumb:hover {
+  background: var(--border-primary);
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .breadcrumb {
+    height: 28px;
+    padding: 4px 6px;
+    font-size: 11px;
+  }
+
+  .breadcrumb-item {
+    padding: 3px 6px;
+    max-width: 120px;
+  }
+
+  .breadcrumb-ellipsis-menu {
+    min-width: 200px;
+  }
+}

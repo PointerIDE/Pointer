@@ -48,10 +48,19 @@ except UnicodeDecodeError:
     # Fallback: try to load without encoding specification
     load_dotenv()
 
+# Import configuration
+from config import ALLOWED_ORIGINS, IS_PRODUCTION, IS_DEVELOPMENT, API_HOST, API_PORT
+
 app = FastAPI()
 
-# Add CORS middleware to allow frontend communication
-# (CORS is configured later in this file as well; avoid duplicate middleware registration.)
+# Configure CORS with centralized settings
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # Initialize Qt application with error handling
 try:

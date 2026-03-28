@@ -1704,7 +1704,7 @@ DO NOT include the [CURSOR] marker in your response. Provide ONLY the completion
           ...prev,
           isStreaming: false
         }));
-        showToast('Function explanation timed out', 'warning');
+        showToast('Function explanation timed out', 'error');
       }, 30000); // 30 second timeout
       
       // Call the function explanation service with streaming

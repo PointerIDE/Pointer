@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import logo from '../assets/logo.png';
+import WindowControls from './WindowControls';
 
 
 interface TitlebarProps {
@@ -319,17 +320,14 @@ const Titlebar: React.FC<TitlebarProps> = ({
         </div>
       </div>
       <div className={`titlebar-right ${isWindows ? 'windows' : 'macos'}`}>
-        <div className="titlebar-controls">
-          <button className="titlebar-button" onClick={handleMinimize}>
-            −
-          </button>
-          <button className="titlebar-button" onClick={handleMaximize}>
-            {isMaximized ? '❐' : '□'}
-          </button>
-          <button className="titlebar-button close" onClick={handleClose}>
-            ✕
-          </button>
-        </div>
+        <WindowControls
+          onMinimize={handleMinimize}
+          onMaximize={handleMaximize}
+          onClose={handleClose}
+          isMaximized={isMaximized}
+          position="right"
+          theme="dark"
+        />
       </div>
     </div>
   );

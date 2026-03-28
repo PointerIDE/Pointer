@@ -22,6 +22,8 @@ const Resizable: React.FC<ResizableProps> = ({
   const [width, setWidth] = useState(defaultWidth);
   const [isDragging, setIsDragging] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
+  const [hoverCollapse, setHoverCollapse] = useState(false);
+  const [hoverDrag, setHoverDrag] = useState(false);
   const dragStartXRef = useRef<number>(0);
   const dragStartWidthRef = useRef<number>(width);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -136,12 +138,11 @@ const Resizable: React.FC<ResizableProps> = ({
           justifyContent: 'center',
           color: 'var(--text-secondary)',
           fontSize: '10px',
-          opacity: 0,
+          opacity: hoverCollapse ? 1 : 0,
           transition: 'opacity 0.2s ease',
-          ':hover': {
-            opacity: 1,
-          },
         }}
+        onMouseEnter={() => setHoverCollapse(true)}
+        onMouseLeave={() => setHoverCollapse(false)}
       >
         <span style={{ 
           transform: isCollapsed ? 'rotate(180deg)' : 'none',
@@ -152,6 +153,8 @@ const Resizable: React.FC<ResizableProps> = ({
       </div>
       <div
         onMouseDown={handleMouseDown}
+        onMouseEnter={() => setHoverDrag(true)}
+        onMouseLeave={() => setHoverDrag(false)}
         style={{
           position: 'absolute',
           right: 0,
@@ -159,11 +162,8 @@ const Resizable: React.FC<ResizableProps> = ({
           bottom: 0,
           width: '4px',
           cursor: 'col-resize',
-          background: isDragging ? 'var(--accent-color)' : 'transparent',
+          background: isDragging ? 'var(--accent-color)' : hoverDrag ? 'var(--accent-color)' : 'transparent',
           transition: 'background-color 0.2s ease',
-          ':hover': {
-            background: 'var(--accent-color)',
-          },
         }}
       />
     </div>

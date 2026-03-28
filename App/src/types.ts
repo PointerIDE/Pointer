@@ -1,4 +1,52 @@
-// Electron API interface
+/**
+ * Tool call function definition
+ */
+export interface ToolFunctionCall {
+  name: string;
+  arguments: string | Record<string, unknown>;
+}
+
+/**
+ * Tool call information
+ */
+export interface ToolCall {
+  id: string;
+  type: 'function';
+  function: ToolFunctionCall;
+}
+
+/**
+ * Editor information for Discord Rich Presence
+ */
+export interface EditorInfo {
+  currentFile?: string;
+  lineNumber?: number;
+  language?: string;
+  projectName?: string;
+  [key: string]: string | number | undefined;
+}
+
+/**
+ * Settings information for Discord Rich Presence
+ */
+export interface DiscordSettings {
+  showFileName?: boolean;
+  showLanguage?: boolean;
+  showProject?: boolean;
+  [key: string]: boolean | undefined;
+}
+
+/**
+ * Electron IPC channel data types
+ */
+export interface ElectronMessage {
+  channel: string;
+  data: unknown;
+}
+
+/**
+ * Electron API interface
+ */
 export interface ElectronAPI {
   window: {
     minimize: () => void;
@@ -6,11 +54,11 @@ export interface ElectronAPI {
     close: () => void;
     isMaximized: () => Promise<boolean>;
   };
-  send: (channel: string, data: any) => void;
-  receive: (channel: string, func: (...args: any[]) => void) => void;
+  send: (channel: string, data: ElectronMessage['data']) => void;
+  receive: (channel: string, func: (data: ElectronMessage['data']) => void) => void;
   discord: {
-    updateEditorInfo: (info: any) => void;
-    updateSettings: (settings: any) => void;
+    updateEditorInfo: (info: EditorInfo) => void;
+    updateSettings: (settings: DiscordSettings) => void;
   };
   openInExplorer: (filePath: string) => Promise<{ success: boolean; error?: string }>;
   openExternal: (url: string) => Promise<{ success: boolean; error?: string }>;
@@ -40,20 +88,14 @@ export interface TabInfo {
   previewType?: 'html' | 'markdown';
 }
 
+/**
+ * Base message interface for chat interactions
+ */
 export interface Message {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: string;
   tool_call_id?: string;
-  tool_calls?: Array<{
-    id: string;
-    type?: 'function';
-    name?: string;
-    arguments?: string | object;
-    function?: {
-      name: string;
-      arguments: string;
-    };
-  }>;
+  tool_calls?: ToolCall[];
 }
 
 export interface FileSystemState {

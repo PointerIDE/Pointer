@@ -50,7 +50,7 @@ export class FileSystemService {
       });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => null);
+        const errorData = await response.json().catch((): null => null);
         console.error('Failed to fetch folder contents:', {
           status: response.status,
           statusText: response.statusText,
@@ -273,7 +273,7 @@ export class FileSystemService {
       });
 
       if (!response.ok) {
-        const errorData = await response.json().catch(() => null);
+        const errorData = await response.json().catch((): null => null);
         console.error('Server error:', {
           status: response.status,
           statusText: response.statusText

@@ -1,11 +1,15 @@
 import { Message } from '../types';
 import { ChatSession, ExtendedMessage } from '../config/chatConfig';
+import { API_CONFIG } from '../config/apiConfig';
+import { logger } from './LoggerService';
 
 // Re-export ChatSession for backward compatibility
 export type { ChatSession };
 
 export class ChatService {
-  private static API_URL = 'http://localhost:23816';
+  private static get API_URL(): string {
+    return API_CONFIG.API_URL;
+  }
 
   /**
    * Generate a simple chat name from the first user message
@@ -79,7 +83,7 @@ export class ChatService {
   static async saveChat(chatId: string, messages: ExtendedMessage[]): Promise<boolean> {
     try {
       if (messages.length <= 1) {
-        console.log('Skipping save - not enough messages');
+        logger.debug('Skipping save - not enough messages');
         return false;
       }
 
@@ -94,7 +98,7 @@ export class ChatService {
         messages: cleanMessages,
       };
 
-      console.log(`Saving chat ${chatId} with ${cleanMessages.length} messages`);
+      logger.info(`Saving chat ${chatId} with ${cleanMessages.length} messages`);
       
       // Debug: log tool message content
       cleanMessages.forEach((msg, index) => {
@@ -121,7 +125,7 @@ export class ChatService {
       console.log(`Chat ${chatId} saved successfully`);
       return true;
     } catch (error) {
-      console.error('Error saving chat:', error);
+      logger.error('Error saving chat', error);
       return false;
     }
   }
@@ -134,7 +138,7 @@ export class ChatService {
       const response = await fetch(`${this.API_URL}/chats/${chatId}`);
       if (!response.ok) {
         if (response.status === 404) {
-          console.log(`Chat ${chatId} not found`);
+          logger.warn(`Chat ${chatId} not found`);
           return null;
         }
         throw new Error(`Failed to load chat: ${response.status}`);
@@ -144,7 +148,7 @@ export class ChatService {
       
       // Validate chat structure
       if (!chat || !Array.isArray(chat.messages)) {
-        console.error('Invalid chat structure:', chat);
+        logger.error('Invalid chat structure', new Error('Chat validation failed'), { chat });
         return null;
       }
 
@@ -159,7 +163,7 @@ export class ChatService {
         messages: cleanMessages
       };
     } catch (error) {
-      console.error('Error loading chat:', error);
+      logger.error('Error loading chat', error, { chatId });
       return null;
     }
   }
@@ -183,7 +187,7 @@ export class ChatService {
           new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
         );
     } catch (error) {
-      console.error('Error listing chats:', error);
+      logger.error('Error listing chats', error);
       return [];
     }
   }
@@ -201,10 +205,10 @@ export class ChatService {
         throw new Error(`Failed to delete chat: ${response.status}`);
       }
       
-      console.log(`Chat ${chatId} deleted successfully`);
+      logger.info(`Chat ${chatId} deleted successfully`);
       return true;
     } catch (error) {
-      console.error('Error deleting chat:', error);
+      logger.error('Error deleting chat', error, { chatId });
       return false;
     }
   }
