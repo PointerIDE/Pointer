@@ -386,8 +386,8 @@ button {
 }
 
 /* Prevent propagation of pointer events to the header */
-pre.language-*,
-code.language-* {
+pre[class*="language-"],
+code[class*="language-"] {
   pointer-events: auto !important;
 }
 

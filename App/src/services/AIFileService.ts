@@ -5,6 +5,7 @@ import { PathConfig } from '../config/paths';
 import { API_CONFIG } from '../config/apiConfig';
 import { logger } from './LoggerService';
 import { FileSystemItem } from '../types';
+import { ModelDiscoveryService } from './ModelDiscoveryService';
 
 interface FileOperation {
   path: string;
@@ -628,8 +629,7 @@ ${content.length > 32000 ? content.substring(0, 32000) + "\n[truncated]" : conte
           if (!modelConfig.id || modelConfig.id.trim() === '') {
             if (modelConfig.apiEndpoint) {
               try {
-                // Import the service dynamically to avoid circular dependencies
-                const { ModelDiscoveryService } = await import('./ModelDiscoveryService');
+                // Use ModelDiscoveryService to get available models
                 const availableModels = await ModelDiscoveryService.getAvailableModels(
                   modelConfig.apiEndpoint, 
                   modelConfig.apiKey
