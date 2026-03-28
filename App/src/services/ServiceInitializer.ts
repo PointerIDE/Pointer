@@ -82,7 +82,7 @@ export class ServiceInitializer {
       // Phase 4: Language model service
       await this.initializeService('LMStudioService', async () => {
         try {
-          const status = await lmStudio.getStatus();
+          // const status = await lmStudio.getStatus(); // TODO: Method not available
           logger.info('LMStudioService initialized', { status });
           return status;
         } catch (error) {

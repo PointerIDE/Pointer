@@ -1,6 +1,8 @@
 /**
  * Service for fetching and providing codebase context to the AI
  */
+import { logger } from './LoggerService';
+
 export class CodebaseContextService {
   
   /**

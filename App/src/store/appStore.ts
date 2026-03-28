@@ -96,7 +96,7 @@ export const useFileSystemStore = create<FileSystemState>()(
       (set) => ({
         fileSystem: {
           items: {},
-          currentFileId: null,
+          currentFileId: null as string | null,
           rootId: 'root',
           terminalOpen: false,
         },
@@ -146,7 +146,7 @@ export const useUIStore = create<UIState>()(
         setLLMChatVisible: (visible) => set({ isLLMChatVisible: visible }),
         isSettingsModalOpen: false,
         setSettingsModalOpen: (open) => set({ isSettingsModalOpen: open }),
-        saveStatus: null,
+        saveStatus: null as 'saving' | 'saved' | 'error' | null,
         setSaveStatus: (status) => set({ saveStatus: status }),
       }),
       { name: 'ui-store' }
@@ -159,7 +159,7 @@ export const useEditorStore = create<EditorState>()(
   devtools(
     persist(
       (set) => ({
-        openFiles: [],
+        openFiles: [] as string[],
         addOpenFile: (fileId) =>
           set((state) => ({
             openFiles: state.openFiles.includes(fileId)
@@ -186,11 +186,11 @@ export const useChatStore = create<ChatStateStore>()(
   devtools(
     persist(
       (set) => ({
-        chats: [],
+        chats: [] as any[],
         setChats: (chats) => set({ chats }),
         isChatListVisible: false,
         setIsChatListVisible: (visible) => set({ isChatListVisible: visible }),
-        currentChatId: null,
+        currentChatId: null as string | null,
         setCurrentChatId: (id) => set({ currentChatId: id }),
         addChat: (chat) =>
           set((state) => ({
@@ -234,7 +234,7 @@ export const useLoadingStore = create<LoadingState>()(
       setConnecting: (connecting) => set({ isConnecting: connecting }),
       connectionMessage: '',
       setConnectionMessage: (message) => set({ connectionMessage: message }),
-      loadingError: null,
+      loadingError: null as string | null,
       setLoadingError: (error) => set({ loadingError: error }),
     }),
     { name: 'LoadingStore' }

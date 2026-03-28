@@ -2278,7 +2278,7 @@ const normalizeConversationHistory = (messages: ExtendedMessage[]): Message[] =>
       console.log(`Tool response at index ${idx}, ID: ${msg.tool_call_id}, content: ${typeof msg.content === 'string' ? msg.content.substring(0, 50) + '...' : '[object]'}`);
     } else if (msg.role === 'assistant' && 'tool_calls' in msg && msg.tool_calls && msg.tool_calls.length > 0) {
       console.log(`Assistant with tool calls at index ${idx}, count: ${msg.tool_calls.length}`);
-      msg.tool_calls.forEach(tc => console.log(`  Tool call: ${tc.name}, ID: ${tc.id}, args: ${typeof tc.arguments === 'string' ? tc.arguments.substring(0, 50) + '...' : '[object]'}`));
+      msg.tool_calls.forEach(tc => console.log(`  Tool call: ${tc.function?.name}, ID: ${tc.id}, args: ${typeof tc.function?.arguments === 'string' ? tc.function.arguments.substring(0, 50) + '...' : '[object]'}`));
     } else if (msg.role === 'assistant' && typeof msg.content === 'string' && msg.content.includes('function_call:')) {
       console.log(`Assistant with function_call string at index ${idx}, content: ${msg.content.substring(0, 100)}...`);
     } else {
@@ -2433,9 +2433,9 @@ const normalizeConversationHistory = (messages: ExtendedMessage[]): Message[] =>
                 id: validId,
                 type: 'function' as const,
                 function: {
-                  name: tc.name,
-                  arguments: typeof tc.arguments === 'string' ? 
-                    tc.arguments : JSON.stringify(tc.arguments)
+                  name: tc.function?.name || 'unknown',
+                  arguments: typeof tc.function?.arguments === 'string' ? 
+                    tc.function.arguments : JSON.stringify(tc.function?.arguments)
                 }
               };
             });
@@ -2466,7 +2466,8 @@ const normalizeConversationHistory = (messages: ExtendedMessage[]): Message[] =>
   console.log('--- NORMALIZED MESSAGES START ---');
   normalizedMessages.forEach((msg, idx) => {
     if (msg.role === 'tool') {
-      console.log(`Normalized tool message at index ${idx}, ID: ${msg.tool_call_id}`);
+      const toolCallId = 'tool_call_id' in msg ? (msg as any).tool_call_id : 'unknown';
+    console.log(`Normalized tool message at index ${idx}, ID: ${toolCallId}`);
     } else if (msg.role === 'assistant' && 'tool_calls' in msg && msg.tool_calls) {
       console.log(`Normalized assistant with tool_calls at index ${idx}, count: ${msg.tool_calls.length}`);
     } else {
@@ -2742,11 +2743,11 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
   // Optimized ResizeObserver effect
   useEffect(() => {
     if (containerRef.current && onResize) {
-      let timeoutId: number;
+      let timeoutId: NodeJS.Timeout | null = null;
       
       const observer = new ResizeObserver((entries) => {
         // Debounce resize observer calls
-        clearTimeout(timeoutId);
+        if (timeoutId) clearTimeout(timeoutId);
         timeoutId = setTimeout(() => {
           const entry = entries[0];
           if (entry) {
@@ -3645,7 +3646,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
           abortControllerRef.current.abort();
           abortControllerRef.current = null;
         }
-        showToast('Chat streaming timed out', 'warning');
+        console.warn('Chat streaming timed out');
       }, 60000); // 60 second timeout for chat streaming
 
       // Clear processed code blocks for the new response
@@ -4870,8 +4871,11 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
               content: '', // Clear content since it's a tool call
               tool_calls: functionCalls.map(fc => ({
                 id: fc.id,
-                name: fc.name,
-                arguments: fc.arguments
+                type: 'function' as const,
+                function: {
+                  name: fc.name,
+                  arguments: typeof fc.arguments === 'string' ? fc.arguments : JSON.stringify(fc.arguments)
+                }
               }))
             };
             
@@ -5098,7 +5102,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
           console.log(`Tool message ${idx}: ID=${msg.tool_call_id}, content=${typeof msg.content === 'string' ? msg.content.substring(0, 50) + '...' : '[object]'}`);
         } else if (msg.role === 'assistant' && 'tool_calls' in msg && msg.tool_calls) {
           console.log(`Assistant message ${idx}: has ${msg.tool_calls.length} tool_calls`);
-          msg.tool_calls.forEach(tc => console.log(`  Tool call: ${tc.name}, ID=${tc.id}`));
+          msg.tool_calls.forEach(tc => console.log(`  Tool call: ${tc.function?.name}, ID=${tc.id}`));
         } else {
           console.log(`Message ${idx}: role=${msg.role}, content=${typeof msg.content === 'string' ? msg.content.substring(0, 50) + '...' : '[object]'}`);
         }
@@ -5123,7 +5127,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
           console.log(`Tool message ${idx}: ID=${msg.tool_call_id}, content=${typeof msg.content === 'string' ? msg.content.substring(0, 50) + '...' : '[object]'}`);
         } else if (msg.role === 'assistant' && 'tool_calls' in msg && msg.tool_calls) {
           console.log(`Assistant message ${idx}: has ${msg.tool_calls.length} tool_calls`);
-          msg.tool_calls.forEach(tc => console.log(`  Tool call: ${tc.name}, ID=${tc.id}`));
+          msg.tool_calls.forEach(tc => console.log(`  Tool call: ${tc.function?.name}, ID=${tc.id}`));
         } else {
           console.log(`Message ${idx}: role=${msg.role}, content=${typeof msg.content === 'string' ? msg.content.substring(0, 50) + '...' : '[object]'}`);
         }
@@ -5150,7 +5154,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
           console.log(`Tool message ${idx}: ID=${msg.tool_call_id}, content=${typeof msg.content === 'string' ? msg.content.substring(0, 50) + '...' : '[object]'}`);
         } else if (msg.role === 'assistant' && 'tool_calls' in msg && msg.tool_calls) {
           console.log(`Assistant message ${idx}: has ${msg.tool_calls.length} tool_calls`);
-          msg.tool_calls.forEach(tc => console.log(`  Tool call: ${tc.name}, ID=${tc.id}`));
+          msg.tool_calls.forEach(tc => console.log(`  Tool call: ${tc.function?.name}, ID=${tc.id}`));
         } else {
           console.log(`Message ${idx}: role=${msg.role}, content=${typeof msg.content === 'string' ? msg.content.substring(0, 50) + '...' : '[object]'}`);
         }
@@ -5166,7 +5170,7 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
           console.log(`Tool message ${idx}: ID=${msg.tool_call_id}, content=${typeof msg.content === 'string' ? msg.content.substring(0, 50) + '...' : '[object]'}`);
         } else if (msg.role === 'assistant' && 'tool_calls' in msg && msg.tool_calls) {
           console.log(`Assistant message ${idx}: has ${msg.tool_calls.length} tool_calls`);
-          msg.tool_calls.forEach(tc => console.log(`  Tool call: ${tc.name}, ID=${tc.id}`));
+          msg.tool_calls.forEach(tc => console.log(`  Tool call: ${tc.function?.name}, ID=${tc.id}`));
         } else {
           console.log(`Message ${idx}: role=${msg.role}, content=${typeof msg.content === 'string' ? msg.content.substring(0, 50) + '...' : '[object]'}`);
         }
@@ -5467,9 +5471,14 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
                         role: 'assistant',
                         content: '',
                         tool_calls: [{
-                          id: toolCall.id,
-                          name: toolCall.name,
-                          arguments: toolCall.arguments
+                          id: toolCall.id || 'unknown',
+                          type: 'function',
+                          function: {
+                            name: toolCall.name || 'unknown',
+                            arguments: typeof toolCall.arguments === 'string' 
+                              ? toolCall.arguments 
+                              : JSON.stringify(toolCall.arguments || {})
+                          }
                         }]
                       };
                       
@@ -5894,18 +5903,18 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
             .find(m => m.tool_calls?.some(tc => tc.id === message.tool_call_id))
             ?.tool_calls?.find(tc => tc.id === message.tool_call_id);
             
-          if (toolCall && toolCall.name) {
-            toolName = toolCall.name;
+          if (toolCall && toolCall.function?.name) {
+            toolName = toolCall.function.name;
             
             // Store the tool arguments
-            toolArgs = typeof toolCall.arguments === 'string' 
-              ? toolCall.arguments 
-              : JSON.stringify(toolCall.arguments, null, 2);
+            toolArgs = typeof toolCall.function?.arguments === 'string' 
+              ? toolCall.function.arguments 
+              : JSON.stringify(toolCall.function?.arguments, null, 2);
               
             // Try to parse the arguments if they're a string
-            if (typeof toolCall.arguments === 'string') {
+            if (typeof toolCall.function?.arguments === 'string') {
               try {
-                toolArgs = JSON.stringify(JSON.parse(toolCall.arguments), null, 2);
+                toolArgs = JSON.stringify(JSON.parse(toolCall.function.arguments || '{}'), null, 2);
               } catch (e) {
                 // Keep original string if not valid JSON
               }
@@ -6419,14 +6428,16 @@ export function LLMChat({ isVisible, onClose, onResize, currentChatId, onSelectC
 
   // Throttled auto-resize textarea when input changes
   useEffect(() => {
-    let timeoutId: number;
+    let timeoutId: NodeJS.Timeout | null = null;
     
     // Debounce the auto-resize to avoid excessive calls during typing
     timeoutId = setTimeout(() => {
       autoResizeTextarea();
     }, 100);
     
-    return () => clearTimeout(timeoutId);
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+    };
   }, [input, autoResizeTextarea]);
 
   // Add debugging for processing states

@@ -76,7 +76,7 @@ const Terminal: React.FC<TerminalProps> = ({ isVisible }) => {
             background: '#1e1e1e',
             foreground: '#cccccc',
             cursor: '#ffffff',
-            selection: '#264f78',
+            // selection: '#264f78',  // Not supported in ITheme
           },
           fontFamily: 'Consolas, "Courier New", monospace',
           fontSize: 14,
@@ -89,7 +89,7 @@ const Terminal: React.FC<TerminalProps> = ({ isVisible }) => {
           rows: 24,
           cols: 80,
           disableStdin: false,
-          rendererType: 'canvas',
+          // rendererType: 'canvas',  // Not supported in ITerminalOptions
           allowProposedApi: true,
         });
 

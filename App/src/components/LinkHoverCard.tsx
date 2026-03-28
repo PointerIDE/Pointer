@@ -309,7 +309,8 @@ const LinkHoverCard: React.FC<LinkHoverCardProps> = ({ url, children }) => {
                     onError={(e) => {
                       // Fallback to website icon if favicon fails to load
                       e.currentTarget.style.display = 'none';
-                      e.currentTarget.nextElementSibling!.style.display = 'flex';
+                      const nextSiblingElement = e.currentTarget.nextElementSibling as HTMLElement | null;
+                      if (nextSiblingElement) nextSiblingElement.style.display = 'flex';
                     }}
                   />
                 ) : null}

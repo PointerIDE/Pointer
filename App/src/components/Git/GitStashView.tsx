@@ -115,7 +115,7 @@ const GitStashView: React.FC<GitStashViewProps> = ({ refreshStatus }) => {
 
     try {
       const stashList = await GitService.listStashes(currentDirectory);
-      setStashes(stashList);
+      setStashes(stashList.map((s: string, i: number) => ({ index: `stash_${i}`, message: s })));
     } catch (err) {
       console.error('Error loading stashes:', err);
       setError(`Error loading stashes: ${err}`);

@@ -135,7 +135,7 @@ class EnvConfigService {
   private getEnvArray(key: string, defaultValue: string[]): string[] {
     const value = import.meta.env[key];
     if (!value) return defaultValue;
-    return value.split(',').map(v => v.trim()).filter(v => v.length > 0);
+    return value.split(',').map((v: string) => v.trim()).filter((v: string) => v.length > 0);
   }
 
   /**
@@ -195,7 +195,7 @@ class EnvConfigService {
 export const envConfig = new EnvConfigService();
 
 // Export type
-export type { EnvironmentConfig };
+// Re-export handled by DefaultEnvironmentConfig
 
 // For development: log config on startup
 if (import.meta.env.MODE === 'development' && envConfig.isValid()) {

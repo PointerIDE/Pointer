@@ -232,7 +232,7 @@ const ShortcutsGrid: React.FC<{ shortcuts: any[] }> = ({ shortcuts }) => {
             style={{
               borderBottom: '1px solid var(--border-color)',
               backgroundColor: idx % 2 === 0 ? 'var(--bg-primary)' : 'var(--bg-secondary)',
-              '&:hover': { backgroundColor: 'var(--list-hover-bg)' }
+              cursor: 'pointer'
             }}
           >
             <td style={{

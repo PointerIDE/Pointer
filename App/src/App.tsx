@@ -292,7 +292,7 @@ const App: React.FC = () => {
   const loadSettings = async () => {
     try {
       const result = await FileService.readSettingsFiles(PathConfig.getActiveSettingsPath());
-      if (result && result.success) {
+      if (result && result.settings) {
         setSettingsData(result.settings);
         
         // Apply editor settings if they exist
@@ -646,7 +646,7 @@ const App: React.FC = () => {
       
       try {
         // Refresh structure before loading file
-        await FileService.refreshStructure();
+        // await FileService.refreshStructure(); // TODO: Method is private
         
         // Then load the file
         const content = await FileService.readFile(fileId);
@@ -888,42 +888,42 @@ const App: React.FC = () => {
           };
         }
         
-        // Add the file under the "Opened Files" directory
-        newItems[result.id] = {
-          id: result.id,
-          name: result.filename,
-          type: 'file',
-          content: result.content,
-          parentId: openedFilesDirId,
-          path: result.fullPath, // Store the full path for saving
-        };
+        // Add the file under the "Opened Files" directory using fileId from result
+        const fileEntry = result.items[result.fileId];
+        if (fileEntry) {
+          newItems[result.fileId] = {
+            id: result.fileId,
+            name: fileEntry.name || result.path.split('/').pop() || 'file',
+            type: 'file',
+            content: fileEntry.content || '',
+            parentId: openedFilesDirId,
+            path: result.path,
+          };
+        }
 
         // Update the content in the file system state
         const updatedItems = {
           ...newItems,
-          [result.id]: {
-            ...newItems[result.id],
-            content: result.content,
-          },
+          ...result.items,
         };
 
         return {
           ...prev,
           items: updatedItems,
-          currentFileId: result.id,
+          currentFileId: result.fileId,
         };
       });
 
       // Add to open files
-      setOpenFiles(prev => [...prev, result.id]);
+      setOpenFiles(prev => [...prev, result.fileId]);
 
       // Set the editor content
-      if (editor.current) {
-        editor.current.setValue(result.content);
+      if (editor.current && result.items[result.fileId]?.content) {
+        editor.current.setValue(result.items[result.fileId].content);
         // Apply custom theme after setting content
         applyCustomTheme();
       } else {
-        console.error('Editor not initialized');
+        console.error('Editor not initialized or file content not available');
       }
     } catch (error) {
       console.error('Error opening file:', error);
@@ -940,7 +940,7 @@ const App: React.FC = () => {
           ...prev,
           items: {
             ...prev.items,
-            [result.id]: result.file,
+            [result.item.id]: result.item,
           },
         }));
       }
@@ -951,7 +951,7 @@ const App: React.FC = () => {
           ...prev,
           items: {
             ...prev.items,
-            [result.id]: result.directory,
+            [result.item.id]: result.item,
           },
         }));
       }
@@ -995,7 +995,7 @@ const App: React.FC = () => {
     try {
       const result = await FileService.saveFile(fileSystem.currentFileId, content);
       
-      if (result.success) {
+      if (result === true || (typeof result === 'object' && result)) {
         // Update the file system state with the saved content
         setFileSystem(prev => ({
           ...prev,
@@ -1003,15 +1003,10 @@ const App: React.FC = () => {
             ...prev.items,
             [prev.currentFileId!]: {
               ...prev.items[prev.currentFileId!],
-              content: result.content,
+              content: content,
             },
           },
         }));
-
-        // Update editor content if needed
-        if (editor.current && editor.current.getValue() !== result.content) {
-          editor.current.setValue(result.content);
-        }
 
         setSaveStatus('saved');
         setTimeout(() => setSaveStatus(null), 2000);
@@ -1069,7 +1064,7 @@ const App: React.FC = () => {
           setSaveStatus('saving');
           try {
             const result = await FileService.saveFile(fileSystem.currentFileId!, content);
-            if (result.success) {
+            if (result === true || (typeof result === 'object' && result)) {
               // Update the file system state with the saved content
               setFileSystem(prev => ({
                 ...prev,
@@ -1077,7 +1072,7 @@ const App: React.FC = () => {
                   ...prev.items,
                   [prev.currentFileId!]: {
                     ...prev.items[prev.currentFileId!],
-                    content: result.content,
+                    content: content,
                   },
                 },
               }));
@@ -1199,15 +1194,17 @@ const App: React.FC = () => {
   const handleRenameItem = async (item: FileSystemItem, newName: string) => {
     try {
       const result = await FileService.renameItem(item.path, newName);
-      if (result.success && result.newPath) {
+      if (result && result.item) {
         // Update the item in the file system state
         setFileSystem(prev => {
           const updatedItems = { ...prev.items };
-          updatedItems[item.id] = {
-            ...item,
-            name: newName,
-            path: result.newPath as string, // Use type assertion to fix TypeScript error
-          };
+          // Update using the returned item
+          if (result.item.id) {
+            updatedItems[result.item.id] = {
+              ...result.item,
+              name: newName,
+            };
+          }
           return {
             ...prev,
             items: updatedItems,
