@@ -2,13 +2,17 @@
 Utility functions for Pointer CLI.
 """
 
+import difflib
+import json
+import logging
 import os
 import sys
-from pathlib import Path
-from typing import Optional, List, Dict, Any
-import json
-import yaml
 import toml
+import yaml
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 def get_config_path() -> Path:
     """Get the configuration directory path."""
@@ -20,12 +24,23 @@ def ensure_config_dir() -> None:
     config_dir.mkdir(parents=True, exist_ok=True)
 
 def get_project_root() -> Optional[Path]:
-    """Get the project root directory (where .git is located)."""
+    """Get the project root directory (where .git is located).
+    
+    Returns:
+        Path to the project root or None if not in a git repository.
+    """
     current = Path.cwd()
-    while current != current.parent:
+    max_iterations = 20  # Prevent infinite loops on misconfigured systems
+    iterations = 0
+    
+    while current != current.parent and iterations < max_iterations:
         if (current / ".git").exists():
+            logger.debug(f"Found project root: {current}")
             return current
         current = current.parent
+        iterations += 1
+    
+    logger.debug("No git repository found in parent directories")
     return None
 
 def is_git_repo() -> bool:
@@ -37,26 +52,37 @@ def get_file_extension(file_path: Path) -> str:
     return file_path.suffix.lower()
 
 def is_text_file(file_path: Path) -> bool:
-    """Check if file is likely a text file."""
+    """Check if file is likely a text file based on extension and content.
+    
+    Args:
+        file_path: Path to the file to check
+    
+    Returns:
+        True if the file appears to be a text file, False otherwise.
+    """
     text_extensions = {
         '.py', '.js', '.ts', '.jsx', '.tsx', '.html', '.css', '.scss', '.sass',
         '.json', '.yaml', '.yml', '.toml', '.ini', '.cfg', '.conf', '.txt',
         '.md', '.rst', '.xml', '.sql', '.sh', '.bash', '.zsh', '.fish',
         '.go', '.rs', '.java', '.cpp', '.c', '.h', '.hpp', '.cs', '.php',
         '.rb', '.swift', '.kt', '.scala', '.clj', '.hs', '.ml', '.fs',
-        '.vim', '.vimrc', '.gitignore', '.dockerignore', '.env', '.env.example'
+        '.vim', '.vimrc', '.gitignore', '.dockerignore', '.env', '.env.example',
+        '.gradle', '.maven', '.dockerfile', '.makefile', '.cmake'
     }
     
-    if file_path.suffix.lower() in text_extensions:
+    ext = file_path.suffix.lower()
+    if ext in text_extensions:
         return True
     
     # Check for files without extension that might be text
-    if not file_path.suffix:
+    if not ext:
         try:
             with open(file_path, 'rb') as f:
-                chunk = f.read(1024)
+                chunk = f.read(512)  # Check first 512 bytes
+                # Text files typically don't have null bytes
                 return b'\0' not in chunk
-        except:
+        except Exception as e:
+            logger.debug(f"Could not check if {file_path} is text: {e}")
             return False
     
     return False
@@ -89,33 +115,49 @@ def get_file_info(file_path: Path) -> Dict[str, Any]:
             "is_text": is_text_file(file_path) if file_path.is_file() else False,
             "extension": get_file_extension(file_path),
         }
-    except Exception as e:
+    except FileNotFoundError:
+        logger.warning(f"File not found: {file_path}")
         return {
             "path": str(file_path),
             "name": file_path.name,
-            "error": str(e),
+            "error": "File not found",
+        }
+    except Exception as e:
+        logger.error(f"Error getting file info for {file_path}: {e}")
+        return {
+            "path": str(file_path),
+            "name": file_path.name,
+            "error": f"{type(e).__name__}: {e}",
         }
 
 def safe_read_file(file_path: Path, max_size: int = 10 * 1024 * 1024) -> Optional[str]:
     """Safely read a text file with size limit."""
     try:
         if not file_path.exists():
+            logger.warning(f"File does not exist: {file_path}")
             return None
         
         if not file_path.is_file():
+            logger.warning(f"Path is not a file: {file_path}")
             return None
         
-        if file_path.stat().st_size > max_size:
-            return f"[File too large: {format_file_size(file_path.stat().st_size)}]"
+        file_size = file_path.stat().st_size
+        if file_size > max_size:
+            max_formatted = format_file_size(max_size)
+            size_formatted = format_file_size(file_size)
+            logger.warning(f"File too large ({size_formatted} > {max_formatted}): {file_path}")
+            return f"[File too large: {size_formatted}]"
         
         if not is_text_file(file_path):
+            logger.debug(f"Skipping binary file: {file_path}")
             return "[Binary file]"
         
-        with open(file_path, 'r', encoding='utf-8') as f:
+        with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
             return f.read()
     
     except Exception as e:
-        return f"[Error reading file: {e}]"
+        logger.error(f"Error reading file {file_path}: {e}")
+        return f"[Error reading file: {type(e).__name__}: {e}]"
 
 def safe_write_file(file_path: Path, content: str) -> bool:
     """Safely write content to a file."""
@@ -125,14 +167,19 @@ def safe_write_file(file_path: Path, content: str) -> bool:
         
         # Write to temporary file first, then rename (atomic operation)
         temp_path = file_path.with_suffix(file_path.suffix + '.tmp')
-        with open(temp_path, 'w', encoding='utf-8') as f:
+        with open(temp_path, 'w', encoding='utf-8', errors='replace') as f:
             f.write(content)
         
+        # Rename temp file to target (atomic operation on most filesystems)
         temp_path.replace(file_path)
+        logger.info(f"Successfully wrote to file: {file_path}")
         return True
     
+    except PermissionError as e:
+        logger.error(f"Permission denied writing to {file_path}: {e}")
+        return False
     except Exception as e:
-        print(f"Error writing file {file_path}: {e}")
+        logger.error(f"Error writing file {file_path}: {type(e).__name__}: {e}")
         return False
 
 def parse_file_content(file_path: Path, content: str) -> Dict[str, Any]:
@@ -140,21 +187,36 @@ def parse_file_content(file_path: Path, content: str) -> Dict[str, Any]:
     extension = get_file_extension(file_path)
     
     try:
-        if extension in ['.json']:
-            return {"type": "json", "data": json.loads(content)}
+        if extension == '.json':
+            try:
+                return {"type": "json", "data": json.loads(content)}
+            except json.JSONDecodeError as e:
+                logger.error(f"Invalid JSON in {file_path}: {e}")
+                return {"type": "json", "data": None, "parse_error": str(e)}
+        
         elif extension in ['.yaml', '.yml']:
-            return {"type": "yaml", "data": yaml.safe_load(content)}
-        elif extension in ['.toml']:
-            return {"type": "toml", "data": toml.loads(content)}
+            try:
+                return {"type": "yaml", "data": yaml.safe_load(content)}
+            except yaml.YAMLError as e:
+                logger.error(f"Invalid YAML in {file_path}: {e}")
+                return {"type": "yaml", "data": None, "parse_error": str(e)}
+        
+        elif extension == '.toml':
+            try:
+                return {"type": "toml", "data": toml.loads(content)}
+            except toml.TomlDecodeError as e:
+                logger.error(f"Invalid TOML in {file_path}: {e}")
+                return {"type": "toml", "data": None, "parse_error": str(e)}
+        
         else:
             return {"type": "text", "data": content}
+    
     except Exception as e:
-        return {"type": "text", "data": content, "parse_error": str(e)}
+        logger.error(f"Unexpected error parsing {file_path}: {e}")
+        return {"type": "text", "data": content, "parse_error": f"Unexpected error: {e}"}
 
 def create_diff(old_content: str, new_content: str) -> str:
     """Create a simple diff between old and new content."""
-    import difflib
-    
     old_lines = old_content.splitlines(keepends=True)
     new_lines = new_content.splitlines(keepends=True)
     
@@ -194,45 +256,69 @@ def find_files(
     recursive: bool = True,
     include_hidden: bool = False
 ) -> List[Path]:
-    """Find files matching pattern."""
+    """Find files matching pattern(s).
+    
+    Args:
+        pattern: Glob pattern or pattern with OR (e.g., '*.py|*.ts')
+        directory: Base directory to search
+        recursive: Whether to search recursively
+        include_hidden: Whether to include hidden files
+    
+    Returns:
+        List of matching file paths
+    """
     if directory is None:
         directory = Path.cwd()
     
-    # Handle OR patterns like "pattern1|pattern2|pattern3"
-    if '|' in pattern:
-        patterns = [p.strip() for p in pattern.split('|')]
-        all_files = []
-        
-        for single_pattern in patterns:
-            if not recursive:
-                files = list(directory.glob(single_pattern))
-            else:
-                files = list(directory.rglob(single_pattern))
+    if not directory.exists():
+        logger.warning(f"Search directory does not exist: {directory}")
+        return []
+    
+    try:
+        # Handle OR patterns like "pattern1|pattern2|pattern3"
+        if '|' in pattern:
+            patterns = [p.strip() for p in pattern.split('|')]
+            all_files = []
             
-            # Filter hidden files
-            if not include_hidden:
-                files = [f for f in files if not f.name.startswith('.')]
+            for single_pattern in patterns:
+                try:
+                    if not recursive:
+                        files = list(directory.glob(single_pattern))
+                    else:
+                        files = list(directory.rglob(single_pattern))
+                    
+                    # Filter hidden files
+                    if not include_hidden:
+                        files = [f for f in files if not f.name.startswith('.')]
+                    
+                    all_files.extend(files)
+                except Exception as e:
+                    logger.warning(f"Error searching for pattern '{single_pattern}': {e}")
             
-            all_files.extend(files)
+            # Remove duplicates while preserving order
+            seen = set()
+            unique_files = []
+            for file_path in all_files:
+                if file_path not in seen:
+                    seen.add(file_path)
+                    unique_files.append(file_path)
+            
+            logger.debug(f"Found {len(unique_files)} files matching pattern(s): {pattern}")
+            return unique_files
         
-        # Remove duplicates while preserving order
-        seen = set()
-        unique_files = []
-        for file_path in all_files:
-            if file_path not in seen:
-                seen.add(file_path)
-                unique_files.append(file_path)
+        # Single pattern (original behavior)
+        if not recursive:
+            files = list(directory.glob(pattern))
+        else:
+            files = list(directory.rglob(pattern))
         
-        return unique_files
+        # Filter hidden files
+        if not include_hidden:
+            files = [f for f in files if not f.name.startswith('.')]
+        
+        logger.debug(f"Found {len(files)} files matching pattern: {pattern}")
+        return files
     
-    # Single pattern (original behavior)
-    if not recursive:
-        files = list(directory.glob(pattern))
-    else:
-        files = list(directory.rglob(pattern))
-    
-    # Filter hidden files
-    if not include_hidden:
-        files = [f for f in files if not f.name.startswith('.')]
-    
-    return files
+    except Exception as e:
+        logger.error(f"Error finding files with pattern '{pattern}': {e}")
+        return []

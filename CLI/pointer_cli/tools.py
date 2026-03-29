@@ -3,24 +3,27 @@ Tool execution system for Pointer CLI.
 """
 
 import asyncio
-import subprocess
-import shutil
-import os
-from typing import Dict, Any, List, Optional, Union
-from pathlib import Path
 import json
+import logging
+import os
 import re
+import shutil
+import subprocess
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Union
 
 from rich.console import Console
 from rich.panel import Panel
-from rich.text import Text
 from rich.syntax import Syntax
+from rich.text import Text
 
 from .config import Config
 from .utils import (
-    safe_read_file, safe_write_file, create_diff, truncate_output,
-    get_file_info, find_files, is_text_file, get_relative_path
+    create_diff, find_files, get_file_info, get_relative_path, is_text_file,
+    safe_read_file, safe_write_file, truncate_output
 )
+
+logger = logging.getLogger(__name__)
 
 class ToolManager:
     """Manages tool execution for Pointer CLI."""
@@ -43,29 +46,50 @@ class ToolManager:
             "move_file": self._move_file,
             "copy_file": self._copy_file,
         }
+        logger.info(f"ToolManager initialized with {len(self.tools)} tools available")
     
     async def execute_tool(self, tool_data: Dict[str, Any]) -> str:
-        """Execute a tool with the given data."""
-        tool_name = tool_data.get("name")
+        """Execute a tool with the given data.
+        
+        Args:
+            tool_data: Dictionary containing 'name' and 'args' keys
+        
+        Returns:
+            String result of tool execution
+        """
+        tool_name = tool_data.get("name", "unknown")
         args = tool_data.get("args", {})
         
         if tool_name not in self.tools:
-            return f"Unknown tool: {tool_name}"
+            error_msg = f"Unknown tool: {tool_name}"
+            logger.error(error_msg)
+            return error_msg
         
         try:
-            # Run tool in executor to avoid blocking
+            logger.debug(f"Executing tool: {tool_name} with args: {list(args.keys())}")
+            # Run tool in executor to avoid blocking the event loop
             loop = asyncio.get_event_loop()
             result = await loop.run_in_executor(
                 None, 
                 self.tools[tool_name], 
                 args
             )
+            logger.debug(f"Tool {tool_name} completed successfully")
             return result
         except Exception as e:
-            return f"Error executing {tool_name}: {e}"
+            error_msg = f"Error executing {tool_name}: {type(e).__name__}: {e}"
+            logger.error(error_msg)
+            return error_msg
     
     def _read_file(self, args: Dict[str, Any]) -> str:
-        """Read file contents."""
+        """Read file contents.
+        
+        Args:
+            args: Dictionary with 'path' or 'file_path' key and optional 'start_line', 'end_line' for ranges
+        
+        Returns:
+            File contents or error message
+        """
         # Clean the file path by stripping quotes and whitespace
         # Support both 'path' and 'file_path' for backward compatibility
         raw_path = args.get("path", args.get("file_path", ""))
@@ -75,30 +99,53 @@ class ToolManager:
         file_path = Path(raw_path)
         
         if not file_path.exists():
+            logger.warning(f"File not found: {file_path}")
             return f"File not found: {file_path}"
         
         if not file_path.is_file():
+            logger.warning(f"Path is not a file: {file_path}")
             return f"Path is not a file: {file_path}"
         
         content = safe_read_file(file_path)
         if content is None:
+            logger.error(f"Could not read file: {file_path}")
             return f"Could not read file: {file_path}"
+        
+        # Handle line range if specified
+        start_line = args.get("start_line")
+        end_line = args.get("end_line")
+        
+        if start_line is not None and end_line is not None:
+            lines = content.split('\n')
+            try:
+                start_line = max(0, int(start_line) - 1)  # Convert to 0-based
+                end_line = min(len(lines), int(end_line))  # Keep 1-based for end
+                content = '\n'.join(lines[start_line:end_line])
+            except (ValueError, TypeError) as e:
+                logger.warning(f"Invalid line range: {e}")
         
         # Show file info
         file_info = get_file_info(file_path)
-        info_text = f"File: {file_path}\nSize: {file_info['size_formatted']}\n"
+        info_text = f"File: {file_path}\nSize: {file_info.get('size_formatted', 'unknown')}\n"
         
         # Truncate if too long
-        if len(content.split('\n')) > self.config.ui.max_output_lines:
+        content_lines = content.split('\n')
+        if len(content_lines) > self.config.ui.max_output_lines:
             content = truncate_output(content, self.config.ui.max_output_lines)
             info_text += f"Content truncated to {self.config.ui.max_output_lines} lines\n"
         
         return info_text + "\n" + content
     
     def _write_file(self, args: Dict[str, Any]) -> str:
-        """Write content to file."""
+        """Write content to file.
+        
+        Args:
+            args: Dictionary with 'path'/'file_path' and 'content' keys
+        
+        Returns:
+            Success/error message and diff if file already exists
+        """
         # Clean the file path by stripping quotes and whitespace
-        # Support both 'path' and 'file_path' for backward compatibility
         raw_path = args.get("path", args.get("file_path", ""))
         if isinstance(raw_path, str):
             raw_path = raw_path.strip().strip('"').strip("'")
@@ -107,6 +154,7 @@ class ToolManager:
         content = args.get("content", "")
         
         if not file_path:
+            logger.error("No file path provided for write")
             return "Error: No file path provided"
         
         # Check if file exists
@@ -115,12 +163,15 @@ class ToolManager:
             if old_content and self.config.ui.show_diffs:
                 diff = create_diff(old_content, content)
                 if diff:
+                    logger.info(f"File {file_path} exists, showing diff")
                     return f"File exists. Diff:\n{diff}\n\nFile written successfully."
         
         success = safe_write_file(file_path, content)
         if success:
+            logger.info(f"Successfully wrote to file: {file_path}")
             return f"File written successfully: {file_path}"
         else:
+            logger.error(f"Failed to write to file: {file_path}")
             return f"Failed to write file: {file_path}"
     
     def _edit_file(self, args: Dict[str, Any]) -> str:

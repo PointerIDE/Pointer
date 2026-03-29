@@ -4,7 +4,7 @@ Health checks for Pointer CLI environments.
 
 from __future__ import annotations
 
-import os
+import logging
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,6 +13,8 @@ from urllib import error, request
 
 from .config import Config
 from .utils import ensure_config_dir, get_config_path, get_project_root, is_git_repo
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -30,7 +32,17 @@ def run_doctor(
     cwd: Optional[Path] = None,
     timeout: float = 2.0,
 ) -> List[DoctorCheck]:
-    """Run environment checks and return structured results."""
+    """Run environment checks and return structured results.
+    
+    Args:
+        config: Pointer CLI configuration
+        config_path: Optional path to config file
+        cwd: Working directory for checks (defaults to current)
+        timeout: Timeout for API endpoint check
+    
+    Returns:
+        List of DoctorCheck results for each check performed
+    """
     working_directory = cwd or Path.cwd()
     resolved_config_path = Path(config_path) if config_path else Config.get_default_config_path()
 
@@ -42,12 +54,20 @@ def run_doctor(
         _check_workspace(working_directory),
         _check_api_endpoint(config.api.base_url, timeout=timeout),
     ]
-
+    
+    logger.debug(f"Completed {len(checks)} health checks")
     return checks
 
 
 def checks_to_dict(checks: List[DoctorCheck]) -> List[Dict[str, Any]]:
-    """Serialize doctor checks for machine-readable output."""
+    """Serialize doctor checks for machine-readable output.
+    
+    Args:
+        checks: List of DoctorCheck objects
+    
+    Returns:
+        List of dictionaries with check results
+    """
     return [
         {
             "name": check.name,
@@ -59,7 +79,15 @@ def checks_to_dict(checks: List[DoctorCheck]) -> List[Dict[str, Any]]:
 
 
 def apply_safe_fixes(config: Config, config_path: Optional[str] = None) -> List[str]:
-    """Apply safe, local fixes for common doctor findings."""
+    """Apply safe, local fixes for common doctor findings.
+    
+    Args:
+        config: Pointer CLI configuration
+        config_path: Optional path to config file
+    
+    Returns:
+        List of fixes that were applied
+    """
     fixes: List[str] = []
     ensure_config_dir()
 
@@ -67,35 +95,49 @@ def apply_safe_fixes(config: Config, config_path: Optional[str] = None) -> List[
     if not resolved_config_path.exists():
         config.save(str(resolved_config_path))
         fixes.append(f"Created config file at {resolved_config_path}.")
+        logger.info(f"Created config file: {resolved_config_path}")
 
     if not config.is_initialized():
         config.initialized = True
         config.save(str(resolved_config_path))
         fixes.append("Marked configuration as initialized.")
+        logger.info("Marked config as initialized")
 
     if not config.api.base_url.startswith(("http://", "https://")):
         config.api.base_url = "http://localhost:8000"
         fixes.append("Reset api.base_url to http://localhost:8000.")
+        logger.warning("Reset invalid api.base_url")
 
     if not config.api.model_name.strip():
         config.api.model_name = "gpt-oss-20b"
         fixes.append("Reset api.model_name to gpt-oss-20b.")
+        logger.warning("Reset empty api.model_name")
 
     if config.api.timeout <= 0:
         config.api.timeout = 30
         fixes.append("Reset api.timeout to 30.")
+        logger.warning("Reset invalid api.timeout")
 
     if config.api.max_retries < 0:
         config.api.max_retries = 3
         fixes.append("Reset api.max_retries to 3.")
+        logger.warning("Reset invalid api.max_retries")
 
     if config.ui.max_output_lines <= 0:
         config.ui.max_output_lines = 100
         fixes.append("Reset ui.max_output_lines to 100.")
+        logger.warning("Reset invalid ui.max_output_lines")
 
     if config.codebase.max_context_files <= 0:
         config.codebase.max_context_files = 20
         fixes.append("Reset codebase.max_context_files to 20.")
+        logger.warning("Reset invalid max_context_files")
+    
+    if fixes:
+        config.save(str(resolved_config_path))
+        logger.info(f"Applied {len(fixes)} safe fixes")
+    
+    return fixes
 
     if config.codebase.context_depth < 0:
         config.codebase.context_depth = 3
