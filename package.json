@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "chalk": "^4.1.2",
+    "tcp-port-used": "^1.0.2"
+  }
+}

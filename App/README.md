@@ -2,51 +2,182 @@
 
 A modern, AI-powered code editor built with Electron, React, TypeScript, and Python. Features VS Code-like interface, integrated terminal, AI assistance, and professional development tools.
 
-![Pointer Editor](https://img.shields.io/badge/Electron-App-blue) ![Python](https://img.shields.io/badge/Python-Backend-green) ![React](https://img.shields.io/badge/React-Frontend-blue) ![TypeScript](https://img.shields.io/badge/TypeScript-Typed-blue)
-
-> **⚠️ Latest Updates:** Settings loading fixed with improved error handling | New comprehensive build scripts added | Enhanced proxy configuration for API endpoints
-
-## ✨ Features
-
-### 🎨 **Professional Interface**
-- **VS Code-like UI** - Familiar interface with professional themes
-- **Monaco Editor** - Full-featured editor with syntax highlighting for 50+ languages
-- **Split View** - Side-by-side file editing with multiple panes
-- **Customizable Themes** - Dark/light themes with VS Code compatibility
-
-### 🤖 **AI-Powered Development**
-- **Integrated AI Chat** - Built-in AI assistant for code help and explanations
-- **Code Completion** - AI-powered autocomplete and suggestions
-- **Code Analysis** - Intelligent code review and optimization suggestions
-- **Web Search Integration** - Real-time web search using Google Search Results API
-
-### 📁 **Advanced File Management**
-- **File Explorer** - Full-featured file tree with create/edit/delete
-- **Real-time Sync** - Live file synchronization and auto-save
-- **Project Workspace** - Multi-project support with workspace management
-- **Search & Replace** - Global search across files with regex support
-
-### 💻 **Integrated Development Tools**
-- **Built-in Terminal** - xterm.js powered terminal with shell integration
-- **Git Integration** - Version control with visual diff and branch management
-- **Multi-cursor Support** - Advanced editing with multiple cursors
-- **Code Folding** - Collapsible code sections for better navigation
-
-### 🎮 **Modern Features**
-- **Discord Rich Presence** - Show your coding activity on Discord
-- **Cross-platform** - Windows, macOS, and Linux support
-- **Keyboard Shortcuts** - Full VS Code-compatible shortcuts
-- **Extension Support** - Plugin architecture for custom functionality
-
 ## 🚀 Quick Start
 
 ### Prerequisites
-- **Node.js** (v18 or higher)
-- **Python** (v3.8 or higher)
-- **Yarn** (recommended) or npm
+- **Node.js** v18+ and **Yarn**
+- **Python** v3.8+
 - **Git**
 
-### Installation
+### Installation & Run
+```bash
+cd Pointer
+node start-pointer.js
+```
+
+**Alternative modes:**
+```bash
+node start-pointer.js --build        # Build only
+node start-pointer.js --background   # Run in background  
+node start-pointer.js -s             # Skip connection checks (faster)
+node start-pointer.js --help         # View all options
+```
+
+## ✨ Core Features
+
+### 🎨 **Editor**
+- Monaco Editor with 50+ language support
+- VS Code-compatible themes and keybindings
+- Multi-cursor editing and code folding
+- Search & replace with regex support
+- Macro recording and playback
+
+### 🤖 **AI Integration**
+- Integrated AI chat assistant
+- AI-powered code completion
+- Code analysis and suggestions
+- Real-time problem detection
+
+### 💻 **Development Tools**
+- Integrated xterm-based terminal
+- Git integration with visual diff
+- Multi-workspace support
+- File explorer with real-time sync
+- Discord Rich Presence
+
+### 🛡️ **Security & Performance**
+- XSS prevention and input sanitization
+- Intelligent LRU/LFU caching with TTL
+- Real-time performance monitoring
+- Error boundaries with graceful recovery
+- Command validation and sanitization
+
+## 🏗️ Architecture
+
+### Frontend Stack
+- **React 18** - UI library
+- **TypeScript** - Type safety
+- **Vite** - Build tool
+- **Monaco Editor 0.45** - Code editor
+- **xterm 5.5** - Terminal emulator
+- **Zustand 5** - State management
+
+### Backend Stack
+- **Python FastAPI** - REST API
+- **Electron 28** - Desktop app
+- **discord.py 2.0** - Discord integration (via RPC)
+
+### Key Services
+- **InputValidator** - Security & validation layer
+- **CacheManager** - Multi-strategy caching
+- **KeyboardShortcutsRegistry** - Keyboard management
+- **WorkspaceManager** - Multi-workspace architecture
+- **PerformanceMonitor** - Metrics tracking
+- **ServiceInitializer** - Service orchestration
+- **ErrorBoundary** - Error handling
+
+## 📁 Directory Structure
+
+```
+App/
+├── src/
+│   ├── components/          # React components
+│   │   ├── ErrorBoundary.tsx
+│   │   ├── CommandPalette.tsx
+│   │   └── KeyboardShortcutsViewer.tsx
+│   ├── services/            # Core services
+│   │   ├── InputValidator.ts
+│   │   ├── CacheManager.ts
+│   │   ├── KeyboardShortcutsRegistry.ts
+│   │   ├── WorkspaceManager.ts
+│   │   ├── PerformanceMonitor.ts
+│   │   └── ServiceInitializer.ts
+│   ├── store/               # Zustand state stores
+│   │   └── appStore.ts
+│   ├── electron/            # Electron main process
+│   └── backend/             # Python FastAPI server
+├── vite.config.ts
+├── tsconfig.json
+├── package.json
+└── README.md
+```
+
+## 🛠️ Development
+
+### Commands
+```bash
+yarn dev               # Run in development mode
+yarn build             # Build for production
+yarn dev:server        # Run dev server only
+yarn dev:electron      # Run electron only
+yarn start             # Start dev server
+```
+
+### Environment Setup
+```bash
+# Create .env file with your settings
+cp .env.example .env
+```
+
+## 🔌 API Integration
+
+Backend runs on `http://localhost:23816` by default.
+
+**Configurable via environment variables:**
+```bash
+BACKEND_PORT=8000      # Custom backend port
+VITE_PORT=5000         # Custom dev server port
+SKIP_CONNECTION_CHECKS # Skip startup checks
+```
+
+## 📦 Dependencies
+
+**Key Production Packages:**
+- react (18.2.0)
+- react-dom (18.2.0)
+- zustand (5.0.3)
+- monaco-editor (0.45.0)
+- discord-rpc (4.0.1)
+- xterm (5.5.0)
+- simple-git (3.27.0)
+
+**Key Dev Packages:**
+- @types/react (18.3.18)
+- vite (5.4.0)
+- @vitejs/plugin-react (4.2.0)
+- typescript (5.0.0)
+- electron (28.1.0)
+
+## 🚀 Build & Deployment
+
+### Development Build
+```bash
+node start-pointer.js --build
+```
+
+Output: `dist/` directory with compiled frontend
+
+### Production Build
+```bash
+yarn build
+```
+
+This generates:
+- Frontend: `dist/` (React + Vite build)
+- Ready for Electron packaging
+
+## 🤝 Contributing
+
+1. Read the [main README](../README.md)
+2. Create a feature branch
+3. Make changes and test thoroughly
+4. Submit a PR with clear description
+
+## 📜 License
+
+MIT License - See [LICENSE](../LICENSE)
+
+---
 
 1. **Clone Repository**
    ```bash

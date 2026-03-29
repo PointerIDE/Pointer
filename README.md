@@ -53,9 +53,8 @@ A comprehensive development suite consisting of a modern code editor, community 
 ### One-Command Setup (Code Editor)
 ```bash
 git clone https://github.com/PointerIDE/Pointer.git
-cd Pointer/App
-yarn install && pip install -r backend/requirements.txt
-yarn dev
+cd Pointer
+node start-pointer.js
 ```
 
 **For detailed setup of individual components, see their respective README files above.**
@@ -100,8 +99,5 @@ This project is licensed under the **MIT License** - see the [LICENSE](LICENSE) 
 **Special Thanks**: VS Code team, Discord.py community, all contributors and beta testers
 
 ---
-
-![Works on my machine](https://github.com/user-attachments/assets/ec187cfa-001a-4ced-9f91-0bf0fb977f34)
-
 
 *Built with ❤️ by [Das_F1sHy312](https://github.com/f1shyondrugs)*

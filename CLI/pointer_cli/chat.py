@@ -4,22 +4,25 @@ Chat interface for Pointer CLI.
 
 import asyncio
 import json
+import logging
 import re
 import time
-from typing import Dict, Any, List, Optional, AsyncGenerator
 from pathlib import Path
+from typing import Any, AsyncGenerator, Dict, List, Optional, Tuple
 
 import aiohttp
 from rich.console import Console
-from rich.prompt import Prompt
-from rich.text import Text
 from rich.live import Live
-from rich.spinner import Spinner
 from rich.panel import Panel
+from rich.prompt import Prompt
+from rich.spinner import Spinner
+from rich.text import Text
 
+from .codebase_context import CodebaseContext
 from .config import Config
 from .utils import truncate_output
-from .codebase_context import CodebaseContext
+
+logger = logging.getLogger(__name__)
 
 class ChatInterface:
     """Chat interface for natural language interaction."""
@@ -27,14 +30,19 @@ class ChatInterface:
     def __init__(self, config: Config, console: Console):
         self.config = config
         self.console = console
-        self.session = None
-        self.conversation_history = []
+        self.session: Optional[aiohttp.ClientSession] = None
+        self.conversation_history: List[Dict[str, str]] = []
         self.codebase_context = CodebaseContext(config)
+        logger.info("ChatInterface initialized")
         
     async def get_user_input(self) -> str:
-        """Get user input from the terminal."""
+        """Get user input from the terminal.
+        
+        Returns:
+            User input string
+        """
         try:
-            # Use asyncio to handle input without blocking
+            # Use asyncio to handle input without blocking the event loop
             loop = asyncio.get_event_loop()
             user_input = await loop.run_in_executor(
                 None, 
@@ -42,13 +50,23 @@ class ChatInterface:
             )
             return user_input.strip()
         except KeyboardInterrupt:
+            logger.debug("User interrupted input")
             raise
         except Exception as e:
+            logger.error(f"Error getting user input: {e}")
             self.console.print(f"[red]Error getting input: {e}[/red]")
             return ""
     
     async def get_ai_response(self, message: str, context: Dict[str, Any]) -> str:
-        """Get AI response for the given message with loading animation."""
+        """Get AI response for the given message with loading animation.
+        
+        Args:
+            message: User message
+            context: Context information about the project
+        
+        Returns:
+            AI response string
+        """
         try:
             # Add message to conversation history
             self.conversation_history.append({
@@ -64,8 +82,8 @@ class ChatInterface:
                 response = await self._make_streaming_api_call(request_data)
             except Exception as streaming_error:
                 # Fallback to non-streaming if streaming fails
-                self.console.print(f"[yellow]Streaming failed, using fallback: {streaming_error}[/yellow]")
-                # Show simple loading message for fallback
+                logger.warning(f"Streaming failed, using fallback: {streaming_error}")
+                self.console.print(f"[yellow]Streaming failed, using fallback[/yellow]")
                 self.console.print("[blue]Generating response...[/blue]")
                 response = await self._make_api_call(request_data)
             
@@ -78,12 +96,21 @@ class ChatInterface:
             return response
             
         except Exception as e:
-            error_msg = f"Error getting AI response: {e}"
+            error_msg = f"Error getting AI response: {type(e).__name__}: {e}"
+            logger.error(error_msg)
             self.console.print(f"[red]{error_msg}[/red]")
-            raise Exception(error_msg)  # Re-raise instead of returning error message
+            raise
     
-    async def get_ai_response_with_tokens(self, message: str, context: Dict[str, Any]) -> tuple[str, int]:
-        """Get AI response for the given message and return token count."""
+    async def get_ai_response_with_tokens(self, message: str, context: Dict[str, Any]) -> Tuple[str, int]:
+        """Get AI response for the given message and return token count.
+        
+        Args:
+            message: User message
+            context: Context information about the project
+        
+        Returns:
+            Tuple of (response_string, token_count)
+        """
         try:
             # Add message to conversation history
             self.conversation_history.append({
@@ -99,8 +126,8 @@ class ChatInterface:
                 response, tokens = await self._make_streaming_api_call_with_tokens(request_data)
             except Exception as streaming_error:
                 # Fallback to non-streaming if streaming fails
-                self.console.print(f"[yellow]Streaming failed, using fallback: {streaming_error}[/yellow]")
-                # Show simple loading message for fallback
+                logger.warning(f"Token streaming failed, using fallback: {streaming_error}")
+                self.console.print(f"[yellow]Streaming failed, using fallback[/yellow]")
                 self.console.print("[blue]Generating response...[/blue]")
                 response, tokens = await self._make_api_call_with_tokens(request_data)
             
@@ -113,9 +140,10 @@ class ChatInterface:
             return response, tokens
             
         except Exception as e:
-            error_msg = f"Error getting AI response: {e}"
+            error_msg = f"Error getting AI response: {type(e).__name__}: {e}"
+            logger.error(error_msg)
             self.console.print(f"[red]{error_msg}[/red]")
-            raise Exception(error_msg)  # Re-raise instead of returning error message
+            raise
     
     async def _prepare_request(self, message: str, context: Dict[str, Any]) -> Dict[str, Any]:
         """Prepare the API request."""

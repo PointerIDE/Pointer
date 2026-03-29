@@ -175,7 +175,7 @@ const Tabs: React.FC<TabsProps> = ({
           ...prev,
           isStreaming: false
         }));
-        showToast('File summarization timed out', 'warning');
+        showToast('File summarization timed out', 'error');
       }, 30000); // 30 second timeout
       
       console.log("Requesting streaming summary for file:", file.path);

@@ -4,9 +4,9 @@ Main entry point for Pointer CLI.
 """
 
 import json
-import os
-from pathlib import Path
+import logging
 import sys
+from pathlib import Path
 from typing import Optional
 from urllib import error, request
 
@@ -21,6 +21,8 @@ from .config import Config
 from .core import PointerCLI
 from .doctor import apply_safe_fixes, checks_to_dict, run_doctor, summarize_results
 from .utils import ensure_config_dir, get_project_root, is_git_repo
+
+logger = logging.getLogger(__name__)
 
 app = typer.Typer(
     name="pointer",
@@ -65,18 +67,22 @@ def cli_main(
         return
 
     if version:
-        from . import __version__
-
-        console.print(f"Pointer CLI v{__version__}")
+        try:
+            from . import __version__
+            console.print(f"Pointer CLI v{__version__}")
+        except ImportError:
+            console.print("Pointer CLI (version unknown)")
         return
 
     try:
         ensure_config_dir()
         config = Config.load(config_path)
+        logger.debug(f"Config loaded from {config_path or 'default location'}")
 
         if init or not config.is_initialized():
             if not _initialize_config(config, config_path=config_path):
                 console.print("[red]Initialization cancelled.[/red]")
+                logger.info("User cancelled initialization")
                 raise typer.Exit(code=EXIT_USER_CANCELLED)
 
         _raise_for_invalid_config(config)
@@ -88,8 +94,10 @@ def cli_main(
         raise
     except KeyboardInterrupt:
         console.print("\n[yellow]Goodbye![/yellow]")
+        logger.info("User interrupted with keyboard")
         sys.exit(EXIT_OK)
     except Exception as exc:
+        logger.error(f"Unexpected error: {type(exc).__name__}: {exc}", exc_info=True)
         console.print(f"[red]Error: {exc}[/red]")
         sys.exit(EXIT_GENERAL_ERROR)
 

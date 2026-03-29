@@ -3,32 +3,38 @@ Core Pointer CLI implementation.
 """
 
 import asyncio
+import logging
+import os
+import re
 import sys
-from typing import Optional, Dict, Any, List
+import time
+from datetime import datetime
 from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
 from rich.console import Console
 from rich.panel import Panel
-from rich.text import Text
 from rich.prompt import Prompt
+from rich.text import Text
 
-from .config import Config
 from .chat import ChatInterface
-from .tools import ToolManager
-from .modes import ModeManager
-from .utils import get_project_root, is_git_repo
 from .chat_manager import ChatManager
+from .config import Config
+from .modes import ModeManager
+from .tools import ToolManager
+from .utils import get_project_root, is_git_repo
+
+logger = logging.getLogger(__name__)
+
 
 class PointerCLI:
     """Main Pointer CLI class."""
     
     def __init__(self, config: Config):
         self.config = config
-        # Force Windows color system for better compatibility
-        self.console = Console(color_system="windows", force_terminal=True)
-        
-        # Test if colors are actually working
-        self.colors_working = self._test_colors()
+        # Detect color system based on OS
+        color_system = "auto" if os.name != "nt" else "windows"
+        self.console = Console(color_system=color_system, force_terminal=True)
         
         self.chat_interface = ChatInterface(config, self.console)
         self.tool_manager = ToolManager(config, self.console)
@@ -37,36 +43,29 @@ class PointerCLI:
         
         # State
         self.running = False
-        self.current_context = {}
+        self.current_context: Dict[str, Any] = {}
         self.first_message = True
         
-        # Token tracking
+        # Session tracking
         self.total_tokens = 0
         self.message_count = 0
-        self.session_start_time = None
+        self.session_start_time = time.time()
     
-    def _test_colors(self) -> bool:
-        """Test if colors are actually working in the current terminal."""
+    @staticmethod
+    def _clear_screen() -> None:
+        """Clear the terminal screen."""
         try:
-            # Try to print colored text and see if it works
-            test_text = "[green]Test[/green]"
-            self.console.print(test_text)
-            # If we get here without errors, colors might be working
-            return True
-        except Exception:
-            return False
+            os.system('cls' if os.name == 'nt' else 'clear')
+        except Exception as e:
+            logger.warning(f"Failed to clear screen: {e}")
         
     def run(self) -> None:
         """Run the Pointer CLI."""
         self.running = True
+        self.session_start_time = time.time()
         
         # Clear screen on startup
-        import os
-        os.system('cls' if os.name == 'nt' else 'clear')
-        
-        # Initialize session tracking
-        import time
-        self.session_start_time = time.time()
+        self._clear_screen()
         
         # Show welcome message
         self._show_welcome()
@@ -80,7 +79,8 @@ class PointerCLI:
         except KeyboardInterrupt:
             self._handle_exit()
         except Exception as e:
-            self.console.print(f"[red]Unexpected error: {e}[/red]")
+            logger.error(f"Unexpected error: {e}", exc_info=True)
+            self.console.print(f"[red]Error: {e}[/red]")
             sys.exit(1)
     
     def _show_welcome(self) -> None:
@@ -412,10 +412,8 @@ Please provide a brief analysis of the results and any follow-up suggestions or 
         if main_content.strip():
             self.console.print(Panel(main_content, title=title, border_style=border_style))
     
-    def _split_ai_response(self, response: str) -> tuple[str, str]:
+    def _split_ai_response(self, response: str) -> Tuple[str, str]:
         """Split AI response into thinking content and main content."""
-        import re
-        
         # Find thinking blocks
         think_match = re.search(r'<think>(.*?)</think>', response, flags=re.DOTALL)
         
@@ -433,8 +431,6 @@ Please provide a brief analysis of the results and any follow-up suggestions or 
     
     def _show_info(self) -> None:
         """Show session information including token usage."""
-        import time
-        
         if self.session_start_time is None:
             self.console.print("[yellow]Session information not available yet.[/yellow]")
             return
@@ -586,12 +582,11 @@ Please provide a brief analysis of the results and any follow-up suggestions or 
         
         for i, chat in enumerate(chats, 1):
             # Format timestamp
-            from datetime import datetime
             try:
                 dt = datetime.fromisoformat(chat["last_modified"])
                 time_str = dt.strftime("%Y-%m-%d %H:%M")
-            except:
-                time_str = chat["last_modified"]
+            except (ValueError, KeyError):
+                time_str = chat.get("last_modified", "Unknown")
             
             chat_text.append(f"{i}. ", style="bold blue")
             chat_text.append(f"{chat['title']}\n")

@@ -1,0 +1,180 @@
+/* Enhanced Window Controls Styles */
+.window-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 4px;
+  height: 28px;
+  user-select: none;
+  -webkit-app-region: no-drag;
+}
+
+.window-controls-right {
+  margin-left: auto;
+}
+
+.window-controls-left {
+  margin-right: auto;
+}
+
+/* Button Styling */
+.window-control-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 28px;
+  padding: 0;
+  margin: 0;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: all 0.1s ease;
+  border-radius: 0;
+  font-size: 12px;
+  outline: none;
+  -webkit-app-region: no-drag;
+}
+
+.window-control-btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
+}
+
+.window-control-btn:active {
+  background: rgba(255, 255, 255, 0.1);
+  transform: scale(0.95);
+}
+
+.window-control-btn svg {
+  display: block;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Minimize Button */
+.minimize-btn {
+  /* Default styling */
+}
+
+.minimize-btn:hover {
+  background: rgba(100, 200, 255, 0.1);
+  color: #64c8ff;
+}
+
+/* Maximize Button */
+.maximize-btn {
+  /* Default styling */
+}
+
+.maximize-btn:hover {
+  background: rgba(100, 200, 255, 0.1);
+  color: #64c8ff;
+}
+
+.maximize-btn.restored {
+  /* Styling when window is maximized */
+}
+
+.maximize-btn.restored:hover {
+  background: rgba(100, 200, 255, 0.1);
+  color: #64c8ff;
+}
+
+/* Close Button */
+.close-btn {
+  /* Default styling */
+}
+
+.close-btn:hover {
+  background: rgba(255, 80, 80, 0.15);
+  color: #ff5050;
+}
+
+.close-btn:active {
+  background: rgba(255, 80, 80, 0.25);
+}
+
+/* Light Theme */
+.window-controls-light {
+  color: #333;
+}
+
+.window-controls-light .window-control-btn:hover {
+  background: rgba(0, 0, 0, 0.06);
+  color: #333;
+}
+
+.window-controls-light .window-control-btn:active {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.window-controls-light .minimize-btn:hover,
+.window-controls-light .maximize-btn:hover {
+  background: rgba(100, 150, 255, 0.15);
+  color: #1e90ff;
+}
+
+.window-controls-light .close-btn:hover {
+  background: rgba(255, 100, 100, 0.15);
+  color: #ff4444;
+}
+
+/* Accessibility: Focus states */
+.window-control-btn:focus-visible {
+  outline: 2px solid var(--accent-color);
+  outline-offset: -4px;
+}
+
+/* Animation for smooth transitions */
+@keyframes windowControlHover {
+  from {
+    transform: scale(1);
+  }
+  to {
+    transform: scale(1.05);
+  }
+}
+
+.window-control-btn:hover {
+  animation: windowControlHover 0.15s ease-in-out;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .window-controls {
+    gap: 4px;
+  }
+
+  .window-control-btn {
+    width: 28px;
+    height: 26px;
+  }
+}
+
+/* Dark mode (default for VS Code-like interfaces) */
+@media (prefers-color-scheme: dark) {
+  .window-controls {
+    color: #ccc;
+  }
+
+  .window-control-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+  }
+}
+
+/* Light mode */
+@media (prefers-color-scheme: light) {
+  .window-controls {
+    color: #333;
+  }
+
+  .window-control-btn:hover {
+    background: rgba(0, 0, 0, 0.05);
+    color: #000;
+  }
+}

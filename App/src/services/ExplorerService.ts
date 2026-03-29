@@ -1,3 +1,5 @@
+import { logger } from './LoggerService';
+
 export class ExplorerService {
   /**
    * Opens a file or folder in the system's default file explorer
@@ -15,7 +17,7 @@ export class ExplorerService {
         fullPath = this.joinPaths(currentDirectory, filePath);
       }
       
-      console.log('Opening in explorer:', { 
+      logger.debug('Opening in explorer', { 
         originalPath: filePath, 
         fullPath, 
         currentDirectory,
@@ -31,7 +33,7 @@ export class ExplorerService {
         throw new Error('Not running in Electron environment');
       }
     } catch (error) {
-      console.error('Error opening in explorer:', error);
+      logger.error('Error opening in explorer', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error'
@@ -90,7 +92,7 @@ export class ExplorerService {
       const parentDir = filePath.substring(0, lastSeparatorIndex);
       return await this.openInExplorer(parentDir);
     } catch (error) {
-      console.error('Error opening parent folder:', error);
+      logger.error('Error opening parent folder', error);
       return {
         success: false,
         error: error instanceof Error ? error.message : 'Unknown error'

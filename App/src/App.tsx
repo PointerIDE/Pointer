@@ -4,7 +4,7 @@ import FileExplorer from './components/FileExplorer';
 import Tabs from './components/Tabs';
 import Resizable from './components/Resizable';
 import { FileSystemItem, FileSystemState, TabInfo } from './types';
-import { FileSystemService } from './services/FileSystemService';
+import { FileService } from './services/FileService';
 import EditorGrid from './components/EditorGrid';
 import { initializeLanguageSupport, getLanguageFromFileName } from './utils/languageUtils';
 import { LLMChat } from './components/LLMChat';
@@ -23,6 +23,13 @@ import CloneRepositoryModal from './components/CloneRepositoryModal';
 import { PathConfig } from './config/paths';
 import { isPreviewableFile, getPreviewType } from './utils/previewUtils';
 import PreviewPane from './components/PreviewPane';
+import ErrorBoundary from './components/ErrorBoundary';
+
+// TODO: Services to be integrated in next phase
+// import { ServiceInitializer } from './services/ServiceInitializer';
+// import { PerformanceMonitor } from './services/PerformanceMonitor';
+// import { WorkspaceManager, Workspace } from './services/WorkspaceManager';
+// import { KeyboardShortcutsRegistry } from './services/KeyboardShortcutsRegistry';
 
 // Initialize language support
 initializeLanguageSupport();
@@ -211,11 +218,60 @@ const App: React.FC = () => {
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [settingsData, setSettingsData] = useState<Record<string, any>>({});
 
+  // Multi-workspace support (Improvement 23)
+  const [workspaces, setWorkspaces] = useState<any[]>([]);
+  const [currentWorkspaceId, setCurrentWorkspaceId] = useState<string | null>(null);
+  const [showWorkspaceSwitcher, setShowWorkspaceSwitcher] = useState(false);
+
   // Add this inside the App component
   const loadChats = async () => {
     const loadedChats = await ChatService.listChats();
     setChats(loadedChats);
   };
+
+  // Initialize services on component mount (Improvement 13, 19, 23)
+  // TODO: Integrate new services in next phase
+  useEffect(() => {
+    // PerformanceMonitor.mark('app:initialization');
+    
+    // // Initialize services
+    // ServiceInitializer.initializeAll().catch(error => {
+    //   console.error('Service initialization failed:', error);
+    // });
+
+    // // Initialize keyboard shortcuts (Improvement 19)
+    // KeyboardShortcutsRegistry.initialize();
+    
+    // // Register custom commands
+    // KeyboardShortcutsRegistry.registerCommand(
+    //   'editor.action.newFile',
+    //   'ctrl+n',
+    //   () => console.log('New file'),
+    //   'Create new file',
+    //   { mac: 'cmd+n' }
+    // );
+
+    // KeyboardShortcutsRegistry.registerCommand(
+    //   'editor.action.openFile',
+    //   'ctrl+o',
+    //   () => console.log('Open file'),
+    //   'Open file',
+    //   { mac: 'cmd+o' }
+    // );
+
+    // // Initialize workspace manager (Improvement 23)
+    // WorkspaceManager.initialize({ maxWorkspaces: 10, autoSave: true });
+    // setWorkspaces(WorkspaceManager.listWorkspaces());
+
+    // // Update workspace list when workspaces change
+    // const updateWorkspaceList = () => {
+    //   setWorkspaces(WorkspaceManager.listWorkspaces());
+    // };
+
+    return () => {
+      // PerformanceMonitor.measure('app:initialization');
+    };
+  }, []);
 
   // Add this for Discord RPC settings
   const [discordRpcSettings, setDiscordRpcSettings] = useState({
@@ -235,8 +291,8 @@ const App: React.FC = () => {
   // Load settings, including Discord settings
   const loadSettings = async () => {
     try {
-      const result = await FileSystemService.readSettingsFiles(PathConfig.getActiveSettingsPath());
-      if (result && result.success) {
+      const result = await FileService.readSettingsFiles(PathConfig.getActiveSettingsPath());
+      if (result && result.settings) {
         setSettingsData(result.settings);
         
         // Apply editor settings if they exist
@@ -590,10 +646,10 @@ const App: React.FC = () => {
       
       try {
         // Refresh structure before loading file
-        await FileSystemService.refreshStructure();
+        // await FileService.refreshStructure(); // TODO: Method is private
         
         // Then load the file
-        const content = await FileSystemService.readFile(fileId);
+        const content = await FileService.readFile(fileId);
         if (content !== null) {
           setFileSystem(prev => ({
             ...prev,
@@ -675,7 +731,7 @@ const App: React.FC = () => {
     
     // Then load the file content
     try {
-      const content = await FileSystemService.readFile(tabId);
+      const content = await FileService.readFile(tabId);
       console.log('File content loaded:', content ? 'success' : 'null');
       
       if (content !== null) {
@@ -714,7 +770,7 @@ const App: React.FC = () => {
 
         // Only save if there's actual content and a valid path
         if (content && fileSystem.items[tabId].path) {
-          await FileSystemService.saveFile(tabId, content);
+          await FileService.saveFile(tabId, content);
         }
       } catch (error) {
         console.error(`Error saving file before closing tab: ${tabId}`, error);
@@ -760,9 +816,9 @@ const App: React.FC = () => {
       setLoadingError(null);
 
       // Clear loaded folders when opening a new directory
-      FileSystemService.clearLoadedFolders();
+      FileService.clearLoadedFolders();
 
-      const result = await FileSystemService.openDirectory();
+      const result = await FileService.openDirectory();
       
       if (result) {
         // Update editor content
@@ -810,7 +866,7 @@ const App: React.FC = () => {
     applyCustomTheme();
     
     try {
-      const result = await FileSystemService.openFile();
+      const result = await FileService.openFile();
       if (!result) {
         console.error('Failed to open file: No result returned');
         return;
@@ -832,42 +888,42 @@ const App: React.FC = () => {
           };
         }
         
-        // Add the file under the "Opened Files" directory
-        newItems[result.id] = {
-          id: result.id,
-          name: result.filename,
-          type: 'file',
-          content: result.content,
-          parentId: openedFilesDirId,
-          path: result.fullPath, // Store the full path for saving
-        };
+        // Add the file under the "Opened Files" directory using fileId from result
+        const fileEntry = result.items[result.fileId];
+        if (fileEntry) {
+          newItems[result.fileId] = {
+            id: result.fileId,
+            name: fileEntry.name || result.path.split('/').pop() || 'file',
+            type: 'file',
+            content: fileEntry.content || '',
+            parentId: openedFilesDirId,
+            path: result.path,
+          };
+        }
 
         // Update the content in the file system state
         const updatedItems = {
           ...newItems,
-          [result.id]: {
-            ...newItems[result.id],
-            content: result.content,
-          },
+          ...result.items,
         };
 
         return {
           ...prev,
           items: updatedItems,
-          currentFileId: result.id,
+          currentFileId: result.fileId,
         };
       });
 
       // Add to open files
-      setOpenFiles(prev => [...prev, result.id]);
+      setOpenFiles(prev => [...prev, result.fileId]);
 
       // Set the editor content
-      if (editor.current) {
-        editor.current.setValue(result.content);
+      if (editor.current && result.items[result.fileId]?.content) {
+        editor.current.setValue(result.items[result.fileId].content);
         // Apply custom theme after setting content
         applyCustomTheme();
       } else {
-        console.error('Editor not initialized');
+        console.error('Editor not initialized or file content not available');
       }
     } catch (error) {
       console.error('Error opening file:', error);
@@ -878,24 +934,24 @@ const App: React.FC = () => {
     if (!modalState.parentId || !modalState.type || !modalState.name) return;
 
     if (modalState.type === 'file') {
-      const result = await FileSystemService.createFile(modalState.parentId, modalState.name);
+      const result = await FileService.createFile(modalState.parentId, modalState.name);
       if (result) {
         setFileSystem(prev => ({
           ...prev,
           items: {
             ...prev.items,
-            [result.id]: result.file,
+            [result.item.id]: result.item,
           },
         }));
       }
     } else {
-      const result = await FileSystemService.createDirectory(modalState.parentId, modalState.name);
+      const result = await FileService.createDirectory(modalState.parentId, modalState.name);
       if (result) {
         setFileSystem(prev => ({
           ...prev,
           items: {
             ...prev.items,
-            [result.id]: result.directory,
+            [result.item.id]: result.item,
           },
         }));
       }
@@ -937,9 +993,9 @@ const App: React.FC = () => {
     const content = editor.current.getValue();
     
     try {
-      const result = await FileSystemService.saveFile(fileSystem.currentFileId, content);
+      const result = await FileService.saveFile(fileSystem.currentFileId, content);
       
-      if (result.success) {
+      if (result === true || (typeof result === 'object' && result)) {
         // Update the file system state with the saved content
         setFileSystem(prev => ({
           ...prev,
@@ -947,15 +1003,10 @@ const App: React.FC = () => {
             ...prev.items,
             [prev.currentFileId!]: {
               ...prev.items[prev.currentFileId!],
-              content: result.content,
+              content: content,
             },
           },
         }));
-
-        // Update editor content if needed
-        if (editor.current && editor.current.getValue() !== result.content) {
-          editor.current.setValue(result.content);
-        }
 
         setSaveStatus('saved');
         setTimeout(() => setSaveStatus(null), 2000);
@@ -1012,8 +1063,8 @@ const App: React.FC = () => {
         saveTimeout = window.setTimeout(async () => {
           setSaveStatus('saving');
           try {
-            const result = await FileSystemService.saveFile(fileSystem.currentFileId!, content);
-            if (result.success) {
+            const result = await FileService.saveFile(fileSystem.currentFileId!, content);
+            if (result === true || (typeof result === 'object' && result)) {
               // Update the file system state with the saved content
               setFileSystem(prev => ({
                 ...prev,
@@ -1021,7 +1072,7 @@ const App: React.FC = () => {
                   ...prev.items,
                   [prev.currentFileId!]: {
                     ...prev.items[prev.currentFileId!],
-                    content: result.content,
+                    content: content,
                   },
                 },
               }));
@@ -1099,7 +1150,7 @@ const App: React.FC = () => {
   };
 
   const handleDeleteItem = async (item: FileSystemItem) => {
-    const success = await FileSystemService.deleteItem(item.path);
+    const success = await FileService.deleteItem(item.path);
     if (success) {
       // If the deleted item was a file and it was open, close its tab
       if (item.type === 'file' && openFiles.includes(item.id)) {
@@ -1142,16 +1193,18 @@ const App: React.FC = () => {
 
   const handleRenameItem = async (item: FileSystemItem, newName: string) => {
     try {
-      const result = await FileSystemService.renameItem(item.path, newName);
-      if (result.success && result.newPath) {
+      const result = await FileService.renameItem(item.path, newName);
+      if (result && result.item) {
         // Update the item in the file system state
         setFileSystem(prev => {
           const updatedItems = { ...prev.items };
-          updatedItems[item.id] = {
-            ...item,
-            name: newName,
-            path: result.newPath as string, // Use type assertion to fix TypeScript error
-          };
+          // Update using the returned item
+          if (result.item.id) {
+            updatedItems[result.item.id] = {
+              ...result.item,
+              name: newName,
+            };
+          }
           return {
             ...prev,
             items: updatedItems,
@@ -1170,7 +1223,7 @@ const App: React.FC = () => {
       if (!file || file.type !== 'file') return;
 
       // Re-fetch the file content
-      const content = await FileSystemService.readFile(fileId);
+      const content = await FileService.readFile(fileId);
       if (content !== null) {
         // Update file system state
         setFileSystem(prev => ({
@@ -1291,7 +1344,7 @@ const App: React.FC = () => {
         const lastDir = localStorage.getItem('lastDirectory');
         if (lastDir) {
           setConnectionMessage('');
-          const result = await FileSystemService.openSpecificDirectory(lastDir);
+          const result = await FileService.openSpecificDirectory(lastDir);
           if (result) {
             setFileSystem(prevState => ({
               ...prevState,
@@ -1565,10 +1618,11 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="app-container">
-      {isConnecting && (
-        <LoadingScreen message={connectionMessage} />
-      )}
+    <ErrorBoundary>
+      <div className="app-container">
+        {isConnecting && (
+          <LoadingScreen message={connectionMessage} />
+        )}
       
       <div style={{ 
         display: 'flex', 
@@ -1919,6 +1973,7 @@ const App: React.FC = () => {
         />
       </div>
     </div>
+    </ErrorBoundary>
   );
 };
 
