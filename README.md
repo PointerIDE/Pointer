@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/PointerIDE/Pointer/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/PointerIDE/Pointer?style=for-the-badge&logo=github&color=111111"></a>
+  <a href="https://github.com/PointerIDE/Pointer/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/PointerIDE/Pointer?style=for-the-badge&logo=github&color=111111&label=stars"></a>
   <a href="https://github.com/PointerIDE/Pointer/network/members"><img alt="GitHub forks" src="https://img.shields.io/github/forks/PointerIDE/Pointer?style=for-the-badge&logo=github&color=111111"></a>
   <a href="https://github.com/PointerIDE/Pointer/issues"><img alt="GitHub issues" src="https://img.shields.io/github/issues/PointerIDE/Pointer?style=for-the-badge&logo=github&color=111111"></a>
   <a href="https://github.com/PointerIDE/Pointer/commits/main"><img alt="Last commit" src="https://img.shields.io/github/last-commit/PointerIDE/Pointer?style=for-the-badge&logo=git&color=111111"></a>
