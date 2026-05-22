@@ -7,6 +7,7 @@ param(
 	[switch]$Installer,
 	[switch]$Zip,
 	[string]$NativeJobs = '1',
+	[int]$NativePackageConcurrency = 1,
 	[switch]$InVsDevShell
 )
 
@@ -233,6 +234,10 @@ function Restart-InVsDevShell {
 	if ($Fresh) { $args += '-Fresh' }
 	if ($Installer) { $args += '-Installer' }
 	if ($Zip) { $args += '-Zip' }
+	$args += '-NativeJobs'
+	$args += $NativeJobs
+	$args += '-NativePackageConcurrency'
+	$args += $NativePackageConcurrency
 
 	$cmd = "call `"$vsDevCmd`" -arch=$Arch -host_arch=x64 && set `"PATH=$NodeDir;%PATH%`" && powershell.exe $($args -join ' ')"
 	& cmd.exe /d /s /c $cmd
@@ -247,6 +252,59 @@ function Invoke-Npm {
 	)
 
 	Invoke-ProcessLogged -Name $Name -FilePath $NpmCmd -Arguments $Arguments -WorkingDirectory $WorkingDirectory
+}
+
+function Start-NpmProcessLogged {
+	param(
+		[Parameter(Mandatory = $true)][string]$Name,
+		[Parameter(Mandatory = $true)][string[]]$Arguments,
+		[string]$WorkingDirectory = $Root
+	)
+
+	$logPath = Get-StepLogPath $Name
+	$runSuffix = ([DateTime]::UtcNow.ToString('yyyyMMddHHmmssfff'))
+	$stdoutPath = Join-Path $RunLogDir "$Name.$runSuffix.stdout.tmp"
+	$stderrPath = Join-Path $RunLogDir "$Name.$runSuffix.stderr.tmp"
+
+	Write-Step $Name
+	Write-Host "Log: $logPath"
+
+	Remove-Item -LiteralPath $stdoutPath, $stderrPath, $logPath -Force -ErrorAction SilentlyContinue
+
+	$process = Start-Process -FilePath $NpmCmd `
+		-ArgumentList $Arguments `
+		-WorkingDirectory $WorkingDirectory `
+		-RedirectStandardOutput $stdoutPath `
+		-RedirectStandardError $stderrPath `
+		-PassThru `
+		-NoNewWindow
+
+	return [PSCustomObject]@{
+		Name = $Name
+		LogPath = $logPath
+		StdoutPath = $stdoutPath
+		StderrPath = $stderrPath
+		Process = $process
+	}
+}
+
+function Complete-NpmProcessLogged {
+	param([Parameter(Mandatory = $true)]$ProcessInfo)
+
+	$ProcessInfo.Process.WaitForExit()
+
+	New-Item -ItemType File -Force -Path $ProcessInfo.LogPath | Out-Null
+	foreach ($path in @($ProcessInfo.StdoutPath, $ProcessInfo.StderrPath)) {
+		if (Test-Path $path) {
+			Get-Content -LiteralPath $path | Tee-Object -FilePath $ProcessInfo.LogPath -Append
+		}
+	}
+
+	Remove-Item -LiteralPath $ProcessInfo.StdoutPath, $ProcessInfo.StderrPath -Force -ErrorAction SilentlyContinue
+
+	if ($ProcessInfo.Process.ExitCode -ne 0) {
+		throw "Step '$($ProcessInfo.Name)' failed with exit code $($ProcessInfo.Process.ExitCode). See $($ProcessInfo.LogPath)"
+	}
 }
 
 function Repair-NpmDirectory {
@@ -431,11 +489,29 @@ function Rebuild-NativePackages {
 		'@vscode/ripgrep'
 	)
 
-	foreach ($packageName in $nativePackages) {
-		if (Test-Path (Get-PackagePath -Prefix $Prefix -PackageName $packageName)) {
+	$packagesToRebuild = @($nativePackages | Where-Object { Test-Path (Get-PackagePath -Prefix $Prefix -PackageName $_) })
+	if ($NativePackageConcurrency -le 1) {
+		foreach ($packageName in $packagesToRebuild) {
 			$safeName = ($packageName -replace '[@/]', '_').Trim('_')
 			Invoke-Npm -Name "$LogPrefix-rebuild-$safeName" -Arguments @('rebuild', '--prefix', $Prefix, $packageName, '--foreground-scripts', "--jobs=$NativeJobs")
 		}
+		return
+	}
+
+	$running = @()
+	foreach ($packageName in $packagesToRebuild) {
+		if (Test-Path (Get-PackagePath -Prefix $Prefix -PackageName $packageName)) {
+			$safeName = ($packageName -replace '[@/]', '_').Trim('_')
+			$running += Start-NpmProcessLogged -Name "$LogPrefix-rebuild-$safeName" -Arguments @('rebuild', '--prefix', $Prefix, $packageName, '--foreground-scripts', "--jobs=$NativeJobs")
+			if ($running.Count -ge $NativePackageConcurrency) {
+				Complete-NpmProcessLogged -ProcessInfo $running[0]
+				$running = @($running | Select-Object -Skip 1)
+			}
+		}
+	}
+
+	foreach ($processInfo in $running) {
+		Complete-NpmProcessLogged -ProcessInfo $processInfo
 	}
 }
 

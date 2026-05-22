@@ -25,7 +25,11 @@ on:
       native_jobs:
         description: Native rebuild parallelism for node-gyp
         type: string
-        default: max
+        default: "2"
+      native_package_concurrency:
+        description: Number of native packages to rebuild at once
+        type: string
+        default: "3"
       tag:
         description: Release tag
         type: string
@@ -56,6 +60,7 @@ jobs:
           if ('${{ inputs.installer }}' -eq 'true') { $buildArgs['Installer'] = $true }
           if ('${{ inputs.fresh }}' -eq 'true') { $buildArgs['Fresh'] = $true }
           $buildArgs['NativeJobs'] = '${{ inputs.native_jobs }}'
+          $buildArgs['NativePackageConcurrency'] = [int]'${{ inputs.native_package_concurrency }}'
           & .\scripts\build-pointer-release.ps1 @buildArgs
 
       - name: Upload artifacts
