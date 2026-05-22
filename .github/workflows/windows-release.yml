@@ -22,6 +22,10 @@ on:
         description: Force fresh dependency/native rebuild
         type: boolean
         default: false
+      native_jobs:
+        description: Native rebuild parallelism for node-gyp
+        type: string
+        default: max
       tag:
         description: Release tag
         type: string
@@ -51,6 +55,7 @@ jobs:
           if ('${{ inputs.zip }}' -eq 'true') { $buildArgs['Zip'] = $true }
           if ('${{ inputs.installer }}' -eq 'true') { $buildArgs['Installer'] = $true }
           if ('${{ inputs.fresh }}' -eq 'true') { $buildArgs['Fresh'] = $true }
+          $buildArgs['NativeJobs'] = '${{ inputs.native_jobs }}'
           & .\scripts\build-pointer-release.ps1 @buildArgs
 
       - name: Upload artifacts

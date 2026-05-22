@@ -6,6 +6,7 @@ param(
 	[switch]$Fresh,
 	[switch]$Installer,
 	[switch]$Zip,
+	[string]$NativeJobs = '1',
 	[switch]$InVsDevShell
 )
 
@@ -433,7 +434,7 @@ function Rebuild-NativePackages {
 	foreach ($packageName in $nativePackages) {
 		if (Test-Path (Get-PackagePath -Prefix $Prefix -PackageName $packageName)) {
 			$safeName = ($packageName -replace '[@/]', '_').Trim('_')
-			Invoke-Npm -Name "$LogPrefix-rebuild-$safeName" -Arguments @('rebuild', '--prefix', $Prefix, $packageName, '--foreground-scripts', '--jobs=1')
+			Invoke-Npm -Name "$LogPrefix-rebuild-$safeName" -Arguments @('rebuild', '--prefix', $Prefix, $packageName, '--foreground-scripts', "--jobs=$NativeJobs")
 		}
 	}
 }

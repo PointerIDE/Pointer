@@ -88,6 +88,7 @@ Vor einem öffentlichen Release siehe zusätzlich `docs/LAUNCH_CHECKLIST.md`.
 | `--Fresh` | Komplett-Neuinstallation aller Dependencies |
 | `--Installer` | Inno Setup Installer erstellen |
 | `--Zip` | ZIP-Archiv der portablen App erstellen |
+| `--NativeJobs max` | Native Rebuilds parallelisieren (für CI empfohlen; lokal konservativ lassen) |
 
 ### Beispiel: Frischer Build mit Installer und ZIP
 
