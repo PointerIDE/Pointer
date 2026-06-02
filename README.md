@@ -31,7 +31,7 @@
   |
   <a href="#tech-stack">Tech Stack</a>
   |
-  <a href="#pointeride-repositories">PointerIDE Repos</a>
+  <a href="#pointeride-repositories">PointerIDE Repositories</a>
   |
   <a href="#builds">Builds</a>
   |
@@ -64,7 +64,7 @@ Pointer is **not** an official Microsoft product, is **not** Microsoft-signed, a
 | Desktop app | Electron shell, native menus, app icon, Windows packaging, Pointer URI protocol |
 | Terminal | Integrated terminal powered by xterm.js and native pty integration |
 | Extensions | Built-in language, Git, Markdown, theme, notebook, media, and developer tooling extensions |
-| Agent workflows | Agent sessions and chat/session infrastructure under `src/vs/sessions/` and workbench chat areas |
+| Agent workflows | Agent sessions, chat/session infrastructure and agent workflows under `src/vs/sessions/` and workbench chat areas |
 | Themes | Pointer onboarding themes configured in `product.json` and theme defaults |
 | Release pipeline | Local Node runtime, native rebuilds, Electron download, Gulp packaging, ASAR, rcedit, Inno Setup |
 
@@ -85,7 +85,7 @@ Pointer is **not** an official Microsoft product, is **not** Microsoft-signed, a
 
 | Layer | Stack |
 |---|---|
-| Language | TypeScript, JavaScript, Rust CLI pieces, PowerShell/Bat scripts |
+| Language | TypeScript, JavaScript, Rust-based CLI components, PowerShell/Bat scripts |
 | Runtime | Node.js `22.22.1`, Electron `39.8.8` |
 | UI/editor | Pointer workbench, Monaco editor, xterm.js, Codicons |
 | Build system | npm, Gulp 4, esbuild transpile path, ASAR packaging |
