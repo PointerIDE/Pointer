@@ -7,13 +7,11 @@ import { sumBy } from '../../../../../base/common/arrays.js';
 import { TaskQueue, timeout } from '../../../../../base/common/async.js';
 import { Lazy } from '../../../../../base/common/lazy.js';
 import { Disposable, DisposableStore, toDisposable } from '../../../../../base/common/lifecycle.js';
-import { autorun, derived, mapObservableArrayCached, observableValue, runOnChange } from '../../../../../base/common/observable.js';
+import { derived, mapObservableArrayCached, observableValue, runOnChange } from '../../../../../base/common/observable.js';
 import { AnnotatedStringEdit } from '../../../../../editor/common/core/edits/stringEdit.js';
 import { isAiEdit, isUserEdit } from '../../../../../editor/common/textModelEditSource.js';
-import { IInstantiationService } from '../../../../../platform/instantiation/common/instantiation.js';
 import { IStorageService, StorageScope, StorageTarget } from '../../../../../platform/storage/common/storage.js';
 import { AnnotatedDocuments } from '../helpers/annotatedDocuments.js';
-import { AiStatsStatusBar } from './aiStatsStatusBar.js';
 
 export class AiStatsFeature extends Disposable {
 	private readonly _data: IValue<IData>;
@@ -22,7 +20,6 @@ export class AiStatsFeature extends Disposable {
 	constructor(
 		annotatedDocuments: AnnotatedDocuments,
 		@IStorageService private readonly _storageService: IStorageService,
-		@IInstantiationService private readonly _instantiationService: IInstantiationService,
 	) {
 		super();
 
@@ -30,11 +27,6 @@ export class AiStatsFeature extends Disposable {
 		this._data = rateLimitWrite<IData>(storedValue, 1 / 60, this._store);
 
 		this.aiRate.recomputeInitiallyAndOnChange(this._store);
-
-		this._register(autorun(reader => {
-			reader.store.add(this._instantiationService.createInstance(AiStatsStatusBar.hot.read(reader), this));
-		}));
-
 
 		const lastRequestIds: string[] = [];
 

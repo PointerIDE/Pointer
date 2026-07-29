@@ -52,7 +52,9 @@ export class ConversationFeature implements IExtensionContribution {
 	private readonly _disposables = new DisposableStore();
 	/** Disposables that are cleared whenever feature enablement is toggled */
 	private readonly _activatedDisposables = new DisposableStore();
-	/** For the conversation features to be enabled, the proxy needs to return a token with k/v pair: chat=1 */
+	/** Contributions that are only valid while an authenticated Copilot session exists. */
+	private readonly _authenticatedDisposables = new DisposableStore();
+	/** Account-independent conversation features are enabled for local and BYOK models. */
 	public _enabled;
 	/** The feature is marked as active the first time it is enabled. */
 	private _activated;
@@ -82,7 +84,7 @@ export class ConversationFeature implements IExtensionContribution {
 		@INewWorkspacePreviewContentManager private readonly newWorkspacePreviewContentManager: INewWorkspacePreviewContentManager,
 		@ISettingsEditorSearchService private readonly settingsEditorSearchService: ISettingsEditorSearchService,
 	) {
-		this._enabled = false;
+		this._enabled = true;
 		this._activated = false;
 
 		// Register Copilot token listener
@@ -90,26 +92,19 @@ export class ConversationFeature implements IExtensionContribution {
 
 		const activationBlockerDeferred = new DeferredPromise<void>();
 		this.activationBlocker = activationBlockerDeferred.p;
-		if (authenticationService.copilotToken) {
-			this.logService.info(`ConversationFeature: Copilot token already available`);
-			this.activated = true;
-			activationBlockerDeferred.complete();
-		} else {
-			markChatExtGlobal(ChatExtGlobalPerfMark.WillWaitForCopilotToken);
-			this.logService.info(`ConversationFeature: Waiting for copilot token to activate conversation feature`);
-		}
+		this.logService.info('ConversationFeature: Activating account-independent chat contributions');
+		this.activated = true;
+		this.enabled = true;
+		activationBlockerDeferred.complete();
+		this._updateAuthenticatedContributions();
 
 		this._disposables.add(authenticationService.onDidAuthenticationChange(async () => {
 			const hasSession = !!authenticationService.copilotToken;
 			this.logService.info(`ConversationFeature: onDidAuthenticationChange has token: ${hasSession}`);
 			if (hasSession) {
 				markChatExtGlobal(ChatExtGlobalPerfMark.DidWaitForCopilotToken);
-				this.activated = true;
-			} else {
-				this.activated = false;
 			}
-
-			activationBlockerDeferred.complete();
+			this._updateAuthenticatedContributions();
 		}));
 	}
 
@@ -154,6 +149,7 @@ export class ConversationFeature implements IExtensionContribution {
 
 	dispose(): void {
 		this._activated = false;
+		this._authenticatedDisposables.dispose();
 		this._activatedDisposables.dispose();
 		this._disposables?.dispose();
 	}
@@ -168,15 +164,24 @@ export class ConversationFeature implements IExtensionContribution {
 		if (this._searchProviderRegistered) {
 			return;
 		} else {
-			this._searchProviderRegistered = true;
-
-			// Don't register for no auth user
-			if (this.authenticationService.copilotToken?.isNoAuthUser) {
+			// Semantic search remains a Copilot-authenticated feature. Local/BYOK chat
+			// must not trigger a GitHub session request merely by activating Chat.
+			if (!this.authenticationService.copilotToken || this.authenticationService.copilotToken.isNoAuthUser) {
 				this.logService.debug('ConversationFeature: Skipping search provider registration - no GitHub session available');
 				return;
 			}
 
+			this._searchProviderRegistered = true;
 			return vscode.workspace.registerAITextSearchProvider('file', this.instantiationService.createInstance(SemanticSearchTextSearchProvider));
+		}
+	}
+
+	private _updateAuthenticatedContributions(): void {
+		this._authenticatedDisposables.clear();
+		this._searchProviderRegistered = false;
+		const searchProvider = this.registerSearchProvider();
+		if (searchProvider) {
+			this._authenticatedDisposables.add(searchProvider);
 		}
 	}
 
@@ -195,11 +200,6 @@ export class ConversationFeature implements IExtensionContribution {
 			const detectionProvider = this.registerParticipantDetectionProvider();
 			if (detectionProvider) {
 				disposables.add(detectionProvider);
-			}
-
-			const searchDisposable = this.registerSearchProvider();
-			if (searchDisposable) {
-				disposables.add(searchDisposable);
 			}
 
 			const settingsSearchDisposable = this.registerSettingsSearchProvider();
@@ -342,9 +342,10 @@ export class ConversationFeature implements IExtensionContribution {
 
 	private registerCopilotTokenListener() {
 		this._disposables.add(this.authenticationService.onDidAuthenticationChange(() => {
-			const chatEnabled = this.authenticationService.copilotToken !== undefined;
 			this.logService.info(`copilot token sku: ${this.authenticationService.copilotToken?.sku ?? ''}`);
-			this.enabled = chatEnabled ?? false;
+			// Participants and coding commands stay enabled for local/BYOK models.
+			// The authenticated-only contribution set is updated by the constructor listener.
+			this.enabled = true;
 		}));
 	}
 

@@ -7,6 +7,7 @@ import * as arrays from '../../../../base/common/arrays.js';
 import { Emitter } from '../../../../base/common/event.js';
 import { IJSONSchema } from '../../../../base/common/jsonSchema.js';
 import { Disposable, IDisposable } from '../../../../base/common/lifecycle.js';
+import { isEqual } from '../../../../base/common/resources.js';
 import { escapeRegExpCharacters, isFalsyOrWhitespace } from '../../../../base/common/strings.js';
 import { isUndefinedOrNull } from '../../../../base/common/types.js';
 import { URI } from '../../../../base/common/uri.js';
@@ -549,6 +550,84 @@ export class SettingsTreeSettingElement extends SettingsTreeElement {
 
 		return false;
 	}
+}
+
+/**
+ * Returns the settings that can be reset directly within the given section.
+ * Direct settings are inspected before eligibility is evaluated so offscreen rows are current.
+ * Nested groups are intentionally excluded because they represent separate sections.
+ */
+export function getResettableSettingsInSection(group: SettingsTreeGroupElement): readonly SettingsTreeSettingElement[] {
+	const settingsByKey = new Map<string, SettingsTreeSettingElement>();
+
+	for (const child of group.children) {
+		if (!(child instanceof SettingsTreeSettingElement)) {
+			continue;
+		}
+
+		child.inspectSelf();
+		if (child.isConfigured
+			&& !child.isUntrusted
+			&& !child.hasPolicyValue
+			&& !settingsByKey.has(child.setting.key)) {
+			settingsByKey.set(child.setting.key, child);
+		}
+	}
+
+	return [...settingsByKey.values()];
+}
+
+/**
+ * Resolves a stable settings-layout id against the current tree model.
+ * Returning undefined for a missing root lets callers keep a reveal request pending until the model loads.
+ */
+export function findSettingsTreeGroupById(root: SettingsTreeGroupElement | undefined, id: string): SettingsTreeGroupElement | undefined {
+	if (!root) {
+		return undefined;
+	}
+	if (root.id === id) {
+		return root;
+	}
+
+	for (const child of root.children) {
+		if (child instanceof SettingsTreeGroupElement) {
+			const match = findSettingsTreeGroupById(child, id);
+			if (match) {
+				return match;
+			}
+		}
+	}
+	return undefined;
+}
+
+/**
+ * Returns whether an element is the exact requested top-level settings category.
+ */
+export function isTopLevelSettingsCategory(element: SettingsTreeGroupElement | undefined, id: string): boolean {
+	return element?.id === id && element.parent?.id === 'root';
+}
+
+/**
+ * Returns whether two settings targets identify the same configuration scope.
+ */
+export function areSettingsTargetsEqual(first: SettingsTarget, second: SettingsTarget): boolean {
+	return URI.isUri(first)
+		? URI.isUri(second) && isEqual(first, second)
+		: first === second;
+}
+
+/**
+ * Resolves the target for a settings update, preserving an immutable operation target when supplied.
+ */
+export function resolveSettingsTargetForUpdate(currentTarget: SettingsTarget | null, targetOverride?: SettingsTarget): SettingsTarget {
+	return targetOverride ?? currentTarget ?? ConfigurationTarget.USER_LOCAL;
+}
+
+/**
+ * Returns whether every direct setting in a section was created for the given target.
+ */
+export function isSettingsSectionForTarget(group: SettingsTreeGroupElement, target: SettingsTarget): boolean {
+	return group.children.every(child => !(child instanceof SettingsTreeSettingElement) || areSettingsTargetsEqual(child.settingsTarget, target));
 }
 
 

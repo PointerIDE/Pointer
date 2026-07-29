@@ -1,17 +1,9 @@
 {
-	"displayName": "Default Themes",
-	"description": "The default Pointer, Visual Studio light, and Visual Studio dark themes",
-	"pointerLightThemeLabel": "Pointer Light",
+	"displayName": "Pointer Themes",
+	"description": "Pointer's black and white product themes",
 	"pointerDarkThemeLabel": "Pointer Dark",
-	"light2026ThemeLabel": "Light 2026",
-	"dark2026ThemeLabel": "Dark 2026",
-	"darkPlusColorThemeLabel": "Dark+",
-	"darkModernThemeLabel": "Dark Modern",
-	"lightPlusColorThemeLabel": "Light+",
-	"lightModernThemeLabel": "Light Modern",
-	"darkColorThemeLabel": "Dark (Visual Studio)",
-	"lightColorThemeLabel": "Light (Visual Studio)",
-	"hcColorThemeLabel": "Dark High Contrast",
-	"lightHcColorThemeLabel": "Light High Contrast",
+	"pointerObsidianThemeLabel": "Pointer Obsidian",
+	"pointerCyberThemeLabel": "Pointer Cyber",
+	"pointerLightThemeLabel": "Pointer Light",
 	"minimalIconThemeLabel": "Minimal (Pointer)"
 }

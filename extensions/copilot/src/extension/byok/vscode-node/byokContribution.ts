@@ -3,10 +3,8 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 import { LanguageModelChatInformation, LanguageModelChatProvider, lm } from 'vscode';
-import { IAuthenticationService } from '../../../platform/authentication/common/authentication';
 import { IVSCodeExtensionContext } from '../../../platform/extContext/common/extensionContext';
 import { ILogService } from '../../../platform/log/common/logService';
-import { IFetcherService } from '../../../platform/networking/common/fetcherService';
 import { Disposable, DisposableStore } from '../../../util/vs/base/common/lifecycle';
 import { IInstantiationService } from '../../../util/vs/platform/instantiation/common/instantiation';
 import { BYOKKnownModels, inferBYOKModelCapabilities } from '../../byok/common/byokProvider';
@@ -32,10 +30,8 @@ export class BYOKContrib extends Disposable implements IExtensionContribution {
 	private _byokProvidersRegistered = false;
 
 	constructor(
-		@IFetcherService private readonly _fetcherService: IFetcherService,
 		@ILogService private readonly _logService: ILogService,
 		@IVSCodeExtensionContext extensionContext: IVSCodeExtensionContext,
-		@IAuthenticationService _authService: IAuthenticationService,
 		@IInstantiationService private readonly _instantiationService: IInstantiationService,
 	) {
 		super();
@@ -43,15 +39,12 @@ export class BYOKContrib extends Disposable implements IExtensionContribution {
 		this._registerProviders();
 	}
 
-	private async _registerProviders() {
+	private _registerProviders(): void {
 		if (this._byokProvidersRegistered) {
 			return;
 		}
 		this._byokProvidersRegistered = true;
-		const knownModels = await this.fetchKnownModelList(this._fetcherService);
-		if (this._store.isDisposed) {
-			return;
-		}
+		const knownModels = this._getFallbackKnownModels();
 		this._providers.set(OllamaLMProvider.providerName.toLowerCase(), this._instantiationService.createInstance(OllamaLMProvider, this._byokStorageService));
 		this._providers.set(AnthropicLMProvider.providerName.toLowerCase(), this._instantiationService.createInstance(AnthropicLMProvider, knownModels[AnthropicLMProvider.providerName], this._byokStorageService));
 		this._providers.set(GeminiNativeBYOKLMProvider.providerName.toLowerCase(), this._instantiationService.createInstance(GeminiNativeBYOKLMProvider, knownModels[GeminiNativeBYOKLMProvider.providerName], this._byokStorageService));
@@ -72,21 +65,6 @@ export class BYOKContrib extends Disposable implements IExtensionContribution {
 			}
 		}
 	}
-	private async fetchKnownModelList(fetcherService: IFetcherService): Promise<Record<string, BYOKKnownModels>> {
-		try {
-			const data = await (await fetcherService.fetch('https://main.vscode-cdn.net/extensions/copilotChat.json', { method: 'GET', callSite: 'byok-known-models', timeout: 15000 })).json();
-			if (data.version !== 1) {
-				this._logService.warn('BYOK: Copilot Chat known models list is not in the expected format. Using Pointer fallback model metadata.');
-				return this._getFallbackKnownModels();
-			}
-			this._logService.info('BYOK: Copilot Chat known models list fetched successfully.');
-			return { ...this._getFallbackKnownModels(), ...data.modelInfo };
-		} catch (error) {
-			this._logService.warn(`BYOK: failed to fetch Copilot Chat known models list. Using Pointer fallback model metadata. ${error instanceof Error ? error.message : String(error)}`);
-			return this._getFallbackKnownModels();
-		}
-	}
-
 	private _getFallbackKnownModels(): Record<string, BYOKKnownModels> {
 		return {
 			[OAIBYOKLMProvider.providerName]: this._known(['gpt-4.1', 'gpt-4.1-mini', 'gpt-4o', 'gpt-4o-mini', 'o3', 'o4-mini']),

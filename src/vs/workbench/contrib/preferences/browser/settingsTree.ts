@@ -70,7 +70,7 @@ import { settingsMoreActionIcon } from './preferencesIcons.js';
 import { SettingsTarget } from './preferencesWidgets.js';
 import { ISettingOverrideClickEvent, SettingsTreeIndicatorsLabel, getIndicatorsLabelAriaLabel } from './settingsEditorSettingIndicators.js';
 import { ITOCEntry, ITOCFilter } from './settingsLayout.js';
-import { ISettingsEditorViewState, SettingsTreeElement, SettingsTreeGroupChild, SettingsTreeGroupElement, SettingsTreeNewExtensionsElement, SettingsTreeSettingElement, inspectSetting, objectSettingSupportsRemoveDefaultValue, settingKeyToDisplayFormat } from './settingsTreeModels.js';
+import { getResettableSettingsInSection, ISettingsEditorViewState, SettingsTreeElement, SettingsTreeGroupChild, SettingsTreeGroupElement, SettingsTreeNewExtensionsElement, SettingsTreeSettingElement, inspectSetting, objectSettingSupportsRemoveDefaultValue, settingKeyToDisplayFormat } from './settingsTreeModels.js';
 import { ExcludeSettingWidget, IBoolObjectDataItem, IIncludeExcludeDataItem, IListDataItem, IObjectDataItem, IObjectEnumOption, IObjectKeySuggester, IObjectValueSuggester, IncludeSettingWidget, ListSettingWidget, ObjectSettingCheckboxWidget, ObjectSettingDropdownWidget, ObjectValue, SettingListEvent } from './settingsWidgets.js';
 
 const $ = DOM.$;
@@ -787,6 +787,10 @@ interface ISettingNewExtensionsTemplate extends IDisposableTemplate {
 interface IGroupTitleTemplate extends IDisposableTemplate {
 	context?: SettingsTreeGroupElement;
 	parent: HTMLElement;
+	containerElement: HTMLElement;
+	labelElement: HTMLElement;
+	resetButton: Button;
+	elementDisposables: DisposableStore;
 }
 
 const SETTINGS_TEXT_TEMPLATE_ID = 'settings.text.template';
@@ -811,6 +815,10 @@ export interface ISettingChangeEvent {
 	type: SettingValueType | SettingValueType[];
 	manualReset: boolean;
 	scope: ConfigurationScope | undefined;
+}
+
+export interface ISettingGroupResetRequest {
+	readonly group: SettingsTreeGroupElement;
 }
 
 export interface ISettingLinkClickEvent {
@@ -1129,29 +1137,71 @@ export abstract class AbstractSettingRenderer extends Disposable implements ITre
 	}
 }
 
-class SettingGroupRenderer implements ITreeRenderer<SettingsTreeGroupElement, never, IGroupTitleTemplate> {
+export class SettingGroupRenderer implements ITreeRenderer<SettingsTreeGroupElement, never, IGroupTitleTemplate> {
 	templateId = SETTINGS_ELEMENT_TEMPLATE_ID;
+
+	constructor(
+		private readonly _requestResetSettingGroup: (group: SettingsTreeGroupElement) => void,
+	) {
+	}
 
 	renderTemplate(container: HTMLElement): IGroupTitleTemplate {
 		container.classList.add('group-title');
 
+		const toDispose = new DisposableStore();
+		const elementDisposables = toDispose.add(new DisposableStore());
+		const containerElement = DOM.append(container, $('div.settings-group-title-label.settings-row-inner-container'));
+		const labelElement = DOM.append(containerElement, $('span.settings-group-title-text'));
+		const resetSectionLabel = localize('resetSettingsSection', "Reset Section");
+		const resetButton = toDispose.add(new Button(containerElement, {
+			...defaultButtonStyles,
+			secondary: true,
+			supportIcons: true,
+			title: resetSectionLabel,
+			ariaLabel: resetSectionLabel
+		}));
+		resetButton.icon = Codicon.discard;
+		resetButton.element.classList.add('settings-group-reset-button');
+		DOM.setVisibility(false, resetButton.element);
+
 		const template: IGroupTitleTemplate = {
 			parent: container,
-			toDispose: new DisposableStore()
+			containerElement,
+			labelElement,
+			resetButton,
+			elementDisposables,
+			toDispose
 		};
+		toDispose.add(resetButton.onDidClick(() => {
+			if (template.context && getResettableSettingsInSection(template.context).length) {
+				this._requestResetSettingGroup(template.context);
+			}
+		}));
 
 		return template;
 	}
 
-	renderElement(element: ITreeNode<SettingsTreeGroupElement, never>, index: number, templateData: IGroupTitleTemplate): void {
-		templateData.parent.innerText = '';
-		const labelElement = DOM.append(templateData.parent, $('div.settings-group-title-label.settings-row-inner-container'));
-		labelElement.classList.add(`settings-group-level-${element.element.level}`);
-		labelElement.textContent = element.element.label;
+	renderElement(element: ITreeNode<SettingsTreeGroupElement, never>, _index: number, templateData: IGroupTitleTemplate): void {
+		templateData.elementDisposables.clear();
+		templateData.context = element.element;
+		templateData.containerElement.className = `settings-group-title-label settings-row-inner-container settings-group-level-${element.element.level}`;
+		templateData.labelElement.textContent = element.element.label;
+		templateData.containerElement.classList.toggle('settings-group-first', element.element.isFirstGroup);
 
-		if (element.element.isFirstGroup) {
-			labelElement.classList.add('settings-group-first');
-		}
+		const hasResettableSettings = getResettableSettingsInSection(element.element).length > 0;
+		templateData.resetButton.enabled = hasResettableSettings;
+		DOM.setVisibility(hasResettableSettings, templateData.resetButton.element);
+
+		const updateTabbable = () => element.element.tabbable
+			? addChildrenToTabOrder(templateData.containerElement)
+			: removeChildrenFromTabOrder(templateData.containerElement);
+		updateTabbable();
+		templateData.elementDisposables.add(element.element.onDidChangeTabbable(updateTabbable));
+	}
+
+	disposeElement(_element: ITreeNode<SettingsTreeGroupElement, never>, _index: number, templateData: IGroupTitleTemplate): void {
+		templateData.context = undefined;
+		templateData.elementDisposables.clear();
 	}
 
 	disposeTemplate(templateData: IGroupTitleTemplate): void {
@@ -2202,6 +2252,9 @@ export class SettingTreeRenderers extends Disposable {
 	private readonly _onDidChangeSetting = this._register(new Emitter<ISettingChangeEvent>());
 	readonly onDidChangeSetting: Event<ISettingChangeEvent>;
 
+	private readonly _onDidRequestResetSettingGroup = this._register(new Emitter<ISettingGroupResetRequest>());
+	readonly onDidRequestResetSettingGroup = this._onDidRequestResetSettingGroup.event;
+
 	readonly onDidDismissExtensionSetting: Event<string>;
 
 	readonly onDidOpenSettings: Event<string>;
@@ -2278,7 +2331,7 @@ export class SettingTreeRenderers extends Disposable {
 
 		this.allRenderers = [
 			...settingRenderers,
-			this._instantiationService.createInstance(SettingGroupRenderer),
+			this._instantiationService.createInstance(SettingGroupRenderer, group => this._onDidRequestResetSettingGroup.fire({ group })),
 			this._instantiationService.createInstance(SettingNewExtensionsRenderer),
 		];
 	}

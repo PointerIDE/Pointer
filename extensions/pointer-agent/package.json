@@ -1,0 +1,176 @@
+{
+	"name": "pointer-agent",
+	"displayName": "Pointer Agent",
+	"description": "Provider-neutral coding agent for Pointer",
+	"publisher": "Pointer",
+	"version": "0.1.0",
+	"license": "MIT",
+	"engines": {
+		"vscode": "^1.104.0"
+	},
+	"categories": [
+		"AI",
+		"Chat"
+	],
+	"activationEvents": [
+		"onStartupFinished",
+		"onChatParticipant:pointer.agent",
+		"onCommand:pointer.agent.signInChatGPT",
+		"onCommand:pointer.agent.useApiKey",
+		"onCommand:pointer.agent.signOut",
+		"onCommand:pointer.agent.selectModel",
+		"onCommand:pointer.agent.selectProvider",
+		"onCommand:pointer.agent.connectAntigravity",
+		"onCommand:pointer.agent.usePointerKernel",
+		"onCommand:pointer.agent.openModelProviders"
+	],
+	"main": "./out/extension.js",
+	"enabledApiProposals": [
+		"chatParticipantAdditions",
+		"defaultChatParticipant"
+	],
+	"contributes": {
+		"chatParticipants": [
+			{
+				"id": "pointer.agent",
+				"name": "agent",
+				"fullName": "Pointer Agent",
+				"description": "A coding agent powered by your connected provider",
+				"isDefault": true,
+				"isAgent": true,
+				"isEngine": true,
+				"locations": [
+					"panel",
+					"editor"
+				],
+				"modes": [
+					"ask",
+					"edit",
+					"agent"
+				],
+				"commands": [
+					{
+						"name": "provider",
+						"description": "Switch between Pointer Kernel, Codex, Antigravity, and local models"
+					},
+					{
+						"name": "model",
+						"description": "Choose a model from the active provider"
+					},
+					{
+						"name": "connect",
+						"description": "Connect or configure the active provider"
+					},
+					{
+						"name": "setup",
+						"description": "Open the safe model provider setup"
+					}
+				]
+			}
+		],
+		"commands": [
+			{
+				"command": "pointer.agent.signInChatGPT",
+				"title": "Pointer Agent: Connect Codex with ChatGPT"
+			},
+			{
+				"command": "pointer.agent.useApiKey",
+				"title": "Pointer Agent: Connect OpenAI API Key"
+			},
+			{
+				"command": "pointer.agent.signOut",
+				"title": "Pointer Agent: Sign Out of Codex"
+			},
+			{
+				"command": "pointer.agent.selectModel",
+				"title": "Pointer Agent: Select Model"
+			},
+			{
+				"command": "pointer.agent.selectProvider",
+				"title": "Pointer Agent: Select Provider"
+			},
+			{
+				"command": "pointer.agent.connectAntigravity",
+				"title": "Pointer Agent: Connect Google Antigravity"
+			},
+			{
+				"command": "pointer.agent.usePointerKernel",
+				"title": "Pointer Agent: Use Pointer Kernel"
+			},
+			{
+				"command": "pointer.agent.openModelProviders",
+				"title": "Pointer Agent: Open AI & Models"
+			}
+		],
+		"configuration": {
+			"title": "Pointer Agent",
+			"properties": {
+				"pointer.agent.provider": {
+					"type": "string",
+					"enum": ["pointer", "codex", "antigravity", "local"],
+					"enumDescriptions": [
+						"Any model registered by Pointer, an API provider, or an installed AI extension",
+						"Codex with ChatGPT subscription or OpenAI API key",
+						"Google Antigravity with Google OAuth or Cloud project",
+						"Local Ollama models"
+					],
+					"default": "pointer",
+					"scope": "window",
+					"description": "Agent runtime used by the Pointer chat interface."
+				},
+				"pointer.agent.models.model": {
+					"type": "string",
+					"default": "",
+					"scope": "window",
+					"description": "Model used by Pointer Kernel. Leave empty to follow the model selected in chat."
+				},
+				"pointer.agent.codex.command": {
+					"type": "string",
+					"default": "codex",
+					"scope": "machine",
+					"description": "Path to the Codex CLI executable."
+				},
+				"pointer.agent.codex.model": {
+					"type": "string",
+					"default": "",
+					"scope": "window",
+					"description": "Codex model override. Leave empty to use the account default."
+				},
+				"pointer.agent.codex.reasoningEffort": {
+					"type": "string",
+					"enum": ["minimal", "low", "medium", "high", "xhigh", "max"],
+					"default": "medium",
+					"scope": "window",
+					"description": "Reasoning effort used for Codex turns."
+				},
+				"pointer.agent.local.model": {
+					"type": "string",
+					"default": "",
+					"scope": "window",
+					"description": "Ollama model used by the local Pointer Agent."
+				},
+				"pointer.agent.antigravity.command": {
+					"type": "string",
+					"default": "agy",
+					"scope": "machine",
+					"description": "Path to the Google Antigravity CLI executable."
+				},
+				"pointer.agent.antigravity.model": {
+					"type": "string",
+					"default": "",
+					"scope": "window",
+					"description": "Antigravity model override. Leave empty to use the account default."
+				}
+			}
+		}
+	},
+	"scripts": {
+		"compile": "gulp compile-extension:pointer-agent",
+		"watch": "gulp watch-extension:pointer-agent",
+		"vscode:prepublish": "npm run compile"
+	},
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/PointerIDE/Pointer.git"
+	}
+}

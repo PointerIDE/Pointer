@@ -18,9 +18,9 @@ registerSingleton(IOnboardingService, OnboardingVariationA, InstantiationType.De
 
 registerAction2(class extends Action2 {
 	constructor() {
-		super({
-			id: 'workbench.action.welcomeOnboarding2026',
-			title: localize2('welcomeOnboarding2026', "Welcome Onboarding 2026"),
+			super({
+				id: 'workbench.action.welcomeOnboarding2026',
+				title: localize2('welcomeOnboarding2026', "Pointer: Show First-Launch Setup"),
 			category: Categories.Developer,
 			f1: true,
 		});

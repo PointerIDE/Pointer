@@ -67,6 +67,13 @@ function Get-HealthCheckPaths {
 				'extensions\node_modules\esbuild\lib\main.js'
 			)
 		}
+		'extensions/mermaid-chat-features' {
+			return @(
+				'extensions\mermaid-chat-features\node_modules\dompurify\package.json',
+				'extensions\mermaid-chat-features\node_modules\mermaid\package.json',
+				'extensions\mermaid-chat-features\node_modules\@vscode\codicons\dist\codicon.css'
+			)
+		}
 		default {
 			return @()
 		}

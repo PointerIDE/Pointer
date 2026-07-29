@@ -114,6 +114,7 @@ export type IChatModelInformation = IModelAPIResponse & {
 	capabilities: IChatModelCapabilities;
 	urlOrRequestMetadata?: string | RequestMetadata;
 	requestHeaders?: Readonly<Record<string, string>>;
+	requestTimeout?: number;
 	authType?: 'bearer' | 'header' | 'none';
 	authHeaderName?: string;
 	zeroDataRetentionEnabled?: boolean;

@@ -86,6 +86,15 @@ describe('OpenAIEndpoint - Reasoning Properties', () => {
 	});
 
 	describe('CAPI mode (useResponsesApi = false)', () => {
+		it('uses a model-specific request timeout when configured', () => {
+			const endpoint = instaService.createInstance(OpenAIEndpoint,
+				{ ...modelMetadata, requestTimeout: 45000 },
+				'test-api-key',
+				'https://api.openai.com/v1/chat/completions');
+
+			expect(endpoint.getEndpointFetchOptions()).toEqual({ requestTimeout: 45000 });
+		});
+
 		it('should set cot_id and cot_summary properties when processing thinking content', () => {
 			const endpoint = instaService.createInstance(OpenAIEndpoint,
 				{

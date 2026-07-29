@@ -8,20 +8,16 @@ import { createDecorator } from '../../../../platform/instantiation/common/insta
 
 export const IOnboardingService = createDecorator<IOnboardingService>('onboardingService');
 
-export interface IOnboardingShowOptions {
-	readonly requireSignIn?: boolean;
-}
-
 export interface IOnboardingService {
 	readonly _serviceBrand: undefined;
 
 	/**
-	 * Fires when the onboarding modal is dismissed.
+	 * Fires after the first-launch setup leaves the screen.
 	 */
 	readonly onDidDismiss: Event<void>;
 
 	/**
-	 * Show the onboarding modal.
+	 * Shows Pointer's account-free first-launch setup.
 	 */
-	show(options?: IOnboardingShowOptions): void;
+	show(): void;
 }

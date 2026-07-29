@@ -4,9 +4,9 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { KeyCode } from '../../../../../base/common/keyCodes.js';
+import { Disposable } from '../../../../../base/common/lifecycle.js';
 import { localize, localize2 } from '../../../../../nls.js';
-import { Action2, MenuId, MenuRegistry, registerAction2 } from '../../../../../platform/actions/common/actions.js';
-import { ContextKeyExpr } from '../../../../../platform/contextkey/common/contextkey.js';
+import { Action2, registerAction2 } from '../../../../../platform/actions/common/actions.js';
 import { SyncDescriptor } from '../../../../../platform/instantiation/common/descriptors.js';
 import { IInstantiationService, ServicesAccessor } from '../../../../../platform/instantiation/common/instantiation.js';
 import { KeybindingWeight } from '../../../../../platform/keybinding/common/keybindingsRegistry.js';
@@ -15,20 +15,15 @@ import { IEditorPaneRegistry, EditorPaneDescriptor } from '../../../../browser/e
 import { EditorExtensions, IEditorFactoryRegistry, IEditorSerializer } from '../../../../common/editor.js';
 import { EditorInput } from '../../../../common/editor/editorInput.js';
 import { IEditorService } from '../../../../services/editor/common/editorService.js';
-import { ResourceContextKey } from '../../../../common/contextkeys.js';
+import { IPreferencesService } from '../../../../services/preferences/common/preferences.js';
 import { CONTEXT_MODELS_EDITOR, CONTEXT_MODELS_SEARCH_FOCUS, MANAGE_CHAT_COMMAND_ID } from '../../common/constants.js';
 import { CHAT_CATEGORY } from '../actions/chatActions.js';
 import { ModelsManagementEditor } from './chatManagementEditor.js';
 import { ModelsManagementEditorInput } from './chatManagementEditorInput.js';
+import { openLanguageModelSettings } from './languageModelSettingsNavigation.js';
 import { ProviderSetupEditor } from './providerSetupEditor.js';
 import { ProviderSetupEditorInput } from './providerSetupEditorInput.js';
-import { ILanguageModelsConfigurationService } from '../../common/languageModelsConfiguration.js';
-import { Codicon } from '../../../../../base/common/codicons.js';
-import { registerIcon } from '../../../../../platform/theme/common/iconRegistry.js';
-import { Disposable } from '../../../../../base/common/lifecycle.js';
 import { IWorkbenchContribution, registerWorkbenchContribution2, WorkbenchPhase } from '../../../../common/contributions.js';
-
-const languageModelsOpenSettingsIcon = registerIcon('language-models-open-settings', Codicon.goToFile, localize('languageModelsOpenSettings', 'Icon for open language models settings commands.'));
 
 Registry.as<IEditorPaneRegistry>(EditorExtensions.EditorPane).registerEditorPane(
 	EditorPaneDescriptor.create(
@@ -90,12 +85,9 @@ class ChatManagementActionsContribution extends Disposable implements IWorkbench
 
 	static readonly ID = 'workbench.contrib.chatManagementActions';
 
-	constructor(
-		@ILanguageModelsConfigurationService private readonly languageModelsConfigurationService: ILanguageModelsConfigurationService,
-	) {
+	constructor() {
 		super();
 		this.registerChatManagementActions();
-		this.registerLanguageModelsEditorTitleActions();
 	}
 
 	private registerChatManagementActions() {
@@ -105,12 +97,11 @@ class ChatManagementActionsContribution extends Disposable implements IWorkbench
 					id: MANAGE_CHAT_COMMAND_ID,
 					title: localize2('openAiManagement', "Manage Language Models"),
 					category: CHAT_CATEGORY,
-					f1: true,
+					f1: false,
 				});
 			}
 			async run(accessor: ServicesAccessor) {
-				const editorService = accessor.get(IEditorService);
-				return editorService.openEditor(new ProviderSetupEditorInput(), { pinned: true });
+				return openLanguageModelSettings(accessor.get(IPreferencesService));
 			}
 		}));
 
@@ -141,51 +132,18 @@ class ChatManagementActionsContribution extends Disposable implements IWorkbench
 			constructor() {
 				super({
 					id: 'workbench.action.openLanguageModelsJson',
-					title: localize2('openLanguageModelsJson', "Open Language Models (JSON)"),
+					title: localize2('openLanguageModelsSettings', "Manage Language Models"),
 					category: CHAT_CATEGORY,
-					f1: true,
+					f1: false,
 				});
 			}
 
 			async run(accessor: ServicesAccessor) {
-				const languageModelsConfigurationService = accessor.get(ILanguageModelsConfigurationService);
-				await languageModelsConfigurationService.configureLanguageModels();
+				return openLanguageModelSettings(accessor.get(IPreferencesService));
 			}
 		}));
 	}
 
-	private registerLanguageModelsEditorTitleActions() {
-		const modelsConfigurationFile = this.languageModelsConfigurationService.configurationFile;
-		const openModelsManagementEditorWhen = ContextKeyExpr.and(
-			CONTEXT_MODELS_EDITOR.toNegated(),
-			ResourceContextKey.Resource.isEqualTo(modelsConfigurationFile.toString()),
-			ContextKeyExpr.not('isInDiffEditor')
-		);
-
-		MenuRegistry.appendMenuItem(MenuId.EditorTitle, {
-			command: {
-				id: MANAGE_CHAT_COMMAND_ID,
-				title: localize2('openAiManagement', "Manage Language Models"),
-				icon: languageModelsOpenSettingsIcon
-			},
-			when: openModelsManagementEditorWhen,
-			group: 'navigation',
-			order: 1
-		});
-
-		const openLanguageModelsJsonWhen = CONTEXT_MODELS_EDITOR;
-
-		MenuRegistry.appendMenuItem(MenuId.EditorTitle, {
-			command: {
-				id: 'workbench.action.openLanguageModelsJson',
-				title: localize2('openLanguageModelsJson', "Open Language Models (JSON)"),
-				icon: languageModelsOpenSettingsIcon
-			},
-			when: openLanguageModelsJsonWhen,
-			group: 'navigation',
-			order: 1
-		});
-	}
 }
 
 registerWorkbenchContribution2(ChatManagementActionsContribution.ID, ChatManagementActionsContribution, WorkbenchPhase.AfterRestored);

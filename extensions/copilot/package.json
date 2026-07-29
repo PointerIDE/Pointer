@@ -1384,7 +1384,7 @@
 				"name": "GitHubCopilot",
 				"fullName": "GitHub Copilot",
 				"description": "%copilot.description%",
-				"isDefault": true,
+				"isDefault": false,
 				"locations": [
 					"panel"
 				],
@@ -1501,7 +1501,7 @@
 				"name": "GitHubCopilot",
 				"fullName": "GitHub Copilot",
 				"description": "%copilot.edits.description%",
-				"isDefault": true,
+				"isDefault": false,
 				"locations": [
 					"panel"
 				],
@@ -1514,7 +1514,7 @@
 				"name": "GitHubCopilot",
 				"fullName": "GitHub Copilot",
 				"description": "%copilot.edits.description%",
-				"isDefault": true,
+				"isDefault": false,
 				"locations": [
 					"editor"
 				],
@@ -1532,7 +1532,7 @@
 					"agent"
 				],
 				"isEngine": true,
-				"isDefault": true,
+				"isDefault": false,
 				"isAgent": true,
 				"when": "config.chat.agent.enabled",
 				"commands": [
@@ -2079,6 +2079,31 @@
 							"description": "OpenAI-compatible base URL",
 							"title": "Base URL"
 						},
+						"enabled": {
+							"type": "boolean",
+							"default": true,
+							"description": "%pointer.customProvider.enabled.description%",
+							"title": "%pointer.customProvider.enabled.title%"
+						},
+						"apiPath": {
+							"type": "string",
+							"description": "%pointer.customProvider.apiPath.description%",
+							"title": "%pointer.customProvider.apiPath.title%"
+						},
+						"requestTimeout": {
+							"type": "integer",
+							"minimum": 250,
+							"maximum": 120000,
+							"default": 15000,
+							"description": "%pointer.customProvider.requestTimeout.description%",
+							"title": "%pointer.customProvider.requestTimeout.title%"
+						},
+						"additionalHeaders": {
+							"type": "string",
+							"secret": true,
+							"description": "%pointer.customProvider.additionalHeaders.description%",
+							"title": "%pointer.customProvider.additionalHeaders.title%"
+						},
 						"url": {
 							"type": "string",
 							"description": "Legacy OpenAI-compatible base URL",
@@ -2204,13 +2229,6 @@
 										"type": "boolean",
 										"default": false,
 										"markdownDescription": "Whether Zero Data Retention (ZDR) is enabled for this endpoint. When `true`, `previous_response_id` will not be sent in requests via Responses API."
-									},
-									"requestHeaders": {
-										"type": "object",
-										"description": "Additional HTTP headers to include with requests to this model. These reserved headers are not allowed and ignored if present: forbidden request headers (https://developer.mozilla.org/en-US/docs/Glossary/Forbidden_request_header), forwarding headers ('forwarded', 'x-forwarded-for', 'x-forwarded-host', 'x-forwarded-proto'), and others ('api-key', 'authorization', 'content-type', 'openai-intent', 'x-github-api-version', 'x-initiator', 'x-interaction-id', 'x-interaction-type', 'x-onbehalf-extension-id', 'x-request-id', 'x-vscode-user-agent-library-version'). Pattern-based forbidden headers ('proxy-*', 'sec-*', 'x-http-method*' with forbidden methods) are also blocked.",
-										"additionalProperties": {
-											"type": "string"
-										}
 									}
 								},
 								"required": [

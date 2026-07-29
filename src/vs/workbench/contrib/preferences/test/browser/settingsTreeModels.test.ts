@@ -4,8 +4,35 @@
  *--------------------------------------------------------------------------------------------*/
 
 import assert from 'assert';
+import { URI } from '../../../../../base/common/uri.js';
+import { ConfigurationTarget } from '../../../../../platform/configuration/common/configuration.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
-import { settingKeyToDisplayFormat, parseQuery, IParsedQuery, sanitizeId } from '../../browser/settingsTreeModels.js';
+import { areSettingsTargetsEqual, findSettingsTreeGroupById, getResettableSettingsInSection, isSettingsSectionForTarget, isTopLevelSettingsCategory, settingKeyToDisplayFormat, parseQuery, IParsedQuery, resolveSettingsTargetForUpdate, sanitizeId, SettingsTreeGroupChild, SettingsTreeGroupElement, SettingsTreeSettingElement } from '../../browser/settingsTreeModels.js';
+
+function createSettingElement(key: string, isConfigured = true, isUntrusted = false, hasPolicyValue = false): SettingsTreeSettingElement {
+	const element = Object.create(SettingsTreeSettingElement.prototype) as SettingsTreeSettingElement;
+	Object.assign(element, {
+		setting: { key },
+		isConfigured,
+		isUntrusted,
+		hasPolicyValue,
+		settingsTarget: ConfigurationTarget.USER_LOCAL,
+		inspectSelf: () => undefined,
+	});
+	return element;
+}
+
+function createGroupElement(id: string, children: SettingsTreeGroupChild[]): SettingsTreeGroupElement {
+	const element = Object.create(SettingsTreeGroupElement.prototype) as SettingsTreeGroupElement;
+	Object.assign(element, {
+		id,
+		label: id,
+		level: 0,
+		isFirstGroup: false,
+	});
+	element.children = children;
+	return element;
+}
 
 suite('SettingsTree', () => {
 	test('settingKeyToDisplayFormat', () => {
@@ -344,6 +371,89 @@ suite('SettingsTree', () => {
 				'single_dot',
 			]
 		);
+	});
+
+	test('getResettableSettingsInSection returns only configured, writable direct settings', () => {
+		const configured = createSettingElement('configured');
+		const unconfigured = createSettingElement('unconfigured', false);
+		const untrusted = createSettingElement('untrusted', true, true);
+		const policyControlled = createSettingElement('policyControlled', true, false, true);
+		const section = createGroupElement('section', [configured, unconfigured, untrusted, policyControlled]);
+
+		assert.deepStrictEqual(getResettableSettingsInSection(section), [configured]);
+	});
+
+	test('getResettableSettingsInSection deduplicates settings by key', () => {
+		const unconfiguredDuplicate = createSettingElement('duplicate', false);
+		const first = createSettingElement('duplicate');
+		const duplicate = createSettingElement('duplicate');
+		const other = createSettingElement('other');
+		const section = createGroupElement('section', [unconfiguredDuplicate, first, duplicate, other]);
+
+		assert.deepStrictEqual(getResettableSettingsInSection(section), [first, other]);
+	});
+
+	test('getResettableSettingsInSection excludes settings in nested groups', () => {
+		const direct = createSettingElement('direct');
+		const nested = createSettingElement('nested');
+		const nestedGroup = createGroupElement('nestedGroup', [nested]);
+		const section = createGroupElement('section', [direct, nestedGroup]);
+
+		assert.deepStrictEqual(getResettableSettingsInSection(section), [direct]);
+	});
+
+	test('getResettableSettingsInSection inspects offscreen settings before evaluating eligibility', () => {
+		const offscreen = createSettingElement('offscreen', false);
+		offscreen.inspectSelf = () => offscreen.isConfigured = true;
+		const section = createGroupElement('section', [offscreen]);
+
+		assert.deepStrictEqual(getResettableSettingsInSection(section), [offscreen]);
+	});
+
+	test('settings section target checks reject stale groups', () => {
+		const firstFolder = URI.file('c:/workspace/first');
+		const sameFolder = URI.file('c:/workspace/first');
+		const otherFolder = URI.file('c:/workspace/other');
+		assert.strictEqual(areSettingsTargetsEqual(firstFolder, sameFolder), true);
+		assert.strictEqual(areSettingsTargetsEqual(firstFolder, otherFolder), false);
+		assert.strictEqual(areSettingsTargetsEqual(ConfigurationTarget.USER_LOCAL, ConfigurationTarget.WORKSPACE), false);
+
+		const setting = createSettingElement('stale');
+		const section = createGroupElement('section', [setting]);
+		assert.strictEqual(isSettingsSectionForTarget(section, ConfigurationTarget.USER_LOCAL), true);
+		assert.strictEqual(isSettingsSectionForTarget(section, ConfigurationTarget.WORKSPACE), false);
+	});
+
+	test('settings update target override remains immutable', () => {
+		assert.strictEqual(resolveSettingsTargetForUpdate(ConfigurationTarget.WORKSPACE, ConfigurationTarget.USER_LOCAL), ConfigurationTarget.USER_LOCAL);
+		assert.strictEqual(resolveSettingsTargetForUpdate(ConfigurationTarget.WORKSPACE), ConfigurationTarget.WORKSPACE);
+		assert.strictEqual(resolveSettingsTargetForUpdate(null), ConfigurationTarget.USER_LOCAL);
+	});
+
+	test('category reveal remains pending until the current settings model exists', () => {
+		assert.strictEqual(findSettingsTreeGroupById(undefined, 'chat'), undefined);
+
+		const agent = createGroupElement('chat/agent', []);
+		const chat = createGroupElement('chat', [agent]);
+		const root = createGroupElement('root', [chat]);
+		agent.parent = chat;
+		chat.parent = root;
+
+		assert.strictEqual(findSettingsTreeGroupById(root, 'chat'), chat);
+		assert.strictEqual(findSettingsTreeGroupById(root, 'chat/agent'), agent);
+		assert.strictEqual(findSettingsTreeGroupById(root, 'missing'), undefined);
+	});
+
+	test('provider management matches the exact AI & Models top-level category only', () => {
+		const agent = createGroupElement('chat/agent', []);
+		const chat = createGroupElement('chat', [agent]);
+		const root = createGroupElement('root', [chat]);
+		agent.parent = chat;
+		chat.parent = root;
+
+		assert.strictEqual(isTopLevelSettingsCategory(chat, 'chat'), true);
+		assert.strictEqual(isTopLevelSettingsCategory(agent, 'chat'), false);
+		assert.strictEqual(isTopLevelSettingsCategory(root, 'chat'), false);
 	});
 
 	ensureNoDisposablesAreLeakedInTestSuite();

@@ -229,6 +229,15 @@ export class ModelMetadataFetcher extends Disposable implements IModelMetadataFe
 		if (!force && !this._shouldRefreshModels()) {
 			return;
 		}
+		// The Copilot model catalog is account-backed. Merely opening Chat or
+		// resolving local/BYOK models must not ask VS Code for a GitHub session.
+		// Authentication changes clear the cache, so a later signed-in session
+		// will fetch normally on the next catalog request.
+		if (!this._authService.copilotToken) {
+			this._logService.debug('Skipping Copilot model metadata fetch because no Copilot session is available');
+			this._lastFetchError = undefined;
+			return;
+		}
 		const requestStartTime = Date.now();
 
 		const copilotToken = (await this._authService.getCopilotToken()).token;

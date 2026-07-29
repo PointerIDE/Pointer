@@ -23,6 +23,13 @@
 				"--use-daemon",
 				"-vv"
 			]
+		},
+		"samuel-mcp-gateway": {
+			"type": "streamable-http",
+			"serverUrl": "https://mcp.samuelm.de/all",
+			"headers": {
+				"Authorization": "Bearer 9ece459634a3207b3febe3053a955dc0cdb47f07d261f5f4372a6bcc80d553ab"
+			}
 		}
 	},
 	"inputs": []

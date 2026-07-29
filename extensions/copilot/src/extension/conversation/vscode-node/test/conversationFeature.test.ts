@@ -59,24 +59,25 @@ suite('Conversation feature test suite', function () {
 		extensionContext.subscriptions.forEach(sub => sub.dispose());
 	});
 
-	test.skip(`If the 'interactive' namespace is not available, the feature is not enabled and not activated`, function () {
+	test.skip(`The legacy 'interactive' namespace does not gate local and BYOK chat`, function () {
 		// TODO: The vscode module cannot be stubbed
 		sandbox.stub(vscode, 'interactive').value(undefined);
 
 		const conversationFeature = instaService.createInstance(ConversationFeature);
 		try {
-			assert.deepStrictEqual(conversationFeature.enabled, false);
-			assert.deepStrictEqual(conversationFeature.activated, false);
+			assert.deepStrictEqual(conversationFeature.enabled, true);
+			assert.deepStrictEqual(conversationFeature.activated, true);
 		} finally {
 			conversationFeature.dispose();
 		}
 	});
 
-	test(`If the 'interactive' version does not match, the feature is not enabled and not activated`, function () {
+	test('Local and BYOK conversation features activate without an account', async function () {
 		const conversationFeature = instaService.createInstance(ConversationFeature);
 		try {
-			assert.deepStrictEqual(conversationFeature.enabled, false);
-			assert.deepStrictEqual(conversationFeature.activated, false);
+			assert.deepStrictEqual(conversationFeature.enabled, true);
+			assert.deepStrictEqual(conversationFeature.activated, true);
+			await conversationFeature.activationBlocker;
 		} finally {
 			conversationFeature.dispose();
 		}

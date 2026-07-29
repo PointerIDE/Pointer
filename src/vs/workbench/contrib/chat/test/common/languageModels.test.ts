@@ -10,20 +10,21 @@ import { DisposableStore } from '../../../../../base/common/lifecycle.js';
 import { mock } from '../../../../../base/test/common/mock.js';
 import { ensureNoDisposablesAreLeakedInTestSuite } from '../../../../../base/test/common/utils.js';
 import { NullLogService } from '../../../../../platform/log/common/log.js';
-import { ChatMessageRole, LanguageModelsService, IChatMessage, IChatResponsePart, ILanguageModelChatMetadata } from '../../common/languageModels.js';
+import { ChatMessageRole, LanguageModelsService, IChatMessage, IChatResponsePart, ILanguageModelChatMetadata, LanguageModelsProviderConnectionErrorCode } from '../../common/languageModels.js';
 import { IExtensionService, nullExtensionDescription } from '../../../../services/extensions/common/extensions.js';
 import { DEFAULT_MODEL_PICKER_CATEGORY } from '../../common/widget/input/modelPickerWidget.js';
 import { ExtensionIdentifier } from '../../../../../platform/extensions/common/extensions.js';
 import { TestStorageService } from '../../../../test/common/workbenchTestServices.js';
 import { StorageScope, StorageTarget } from '../../../../../platform/storage/common/storage.js';
-import { Event } from '../../../../../base/common/event.js';
+import { Emitter, Event } from '../../../../../base/common/event.js';
 import { MockContextKeyService } from '../../../../../platform/keybinding/test/common/mockKeybindingService.js';
 import { ContextKeyExpression } from '../../../../../platform/contextkey/common/contextkey.js';
-import { ILanguageModelsConfigurationService } from '../../common/languageModelsConfiguration.js';
+import { ILanguageModelsConfigurationService, ILanguageModelsProviderGroup } from '../../common/languageModelsConfiguration.js';
 import { IQuickInputService } from '../../../../../platform/quickinput/common/quickInput.js';
 import { TestSecretStorageService } from '../../../../../platform/secrets/test/common/testSecretStorageService.js';
 import { IProductService } from '../../../../../platform/product/common/productService.js';
 import { IRequestService } from '../../../../../platform/request/common/request.js';
+import { ChatAgentLocation } from '../../common/constants.js';
 
 suite('LanguageModels', function () {
 
@@ -31,6 +32,117 @@ suite('LanguageModels', function () {
 
 	const store = new DisposableStore();
 	const activationEvents = new Set<string>();
+
+	class TestLanguageModelsConfigurationService extends mock<ILanguageModelsConfigurationService>() {
+		private readonly _onDidChangeLanguageModelGroups = new Emitter<readonly ILanguageModelsProviderGroup[]>();
+		override readonly onDidChangeLanguageModelGroups = this._onDidChangeLanguageModelGroups.event;
+		groups: ILanguageModelsProviderGroup[];
+		failAdd = false;
+		failUpdate = false;
+		emitChanges = false;
+
+		constructor(groups: ILanguageModelsProviderGroup[] = []) {
+			super();
+			this.groups = groups;
+		}
+
+		override getLanguageModelsProviderGroups(): readonly ILanguageModelsProviderGroup[] {
+			return this.groups;
+		}
+
+		override async addLanguageModelsProviderGroup(group: ILanguageModelsProviderGroup): Promise<ILanguageModelsProviderGroup> {
+			if (this.failAdd) {
+				throw new Error('Simulated provider group add failure');
+			}
+			this.groups = [...this.groups, group];
+			return group;
+		}
+
+		override async updateLanguageModelsProviderGroup(from: ILanguageModelsProviderGroup, to: ILanguageModelsProviderGroup): Promise<ILanguageModelsProviderGroup> {
+			if (this.failUpdate) {
+				throw new Error('Simulated provider group update failure');
+			}
+			this.groups = this.groups.map(group => group === from || (group.name === from.name && group.vendor === from.vendor) ? to : group);
+			if (this.emitChanges) {
+				this._onDidChangeLanguageModelGroups.fire([to]);
+			}
+			return to;
+		}
+
+		override async removeLanguageModelsProviderGroup(toRemove: ILanguageModelsProviderGroup): Promise<void> {
+			this.groups = this.groups.filter(group => group !== toRemove && (group.name !== toRemove.name || group.vendor !== toRemove.vendor));
+		}
+
+		override async configureLanguageModels(): Promise<void> { }
+
+		dispose(): void {
+			this._onDidChangeLanguageModelGroups.dispose();
+		}
+	}
+
+	function createSecretProviderService(initialGroups: ILanguageModelsProviderGroup[] = [], registerProvider = false) {
+		languageModels.dispose();
+		const secretStorage = new TestSecretStorageService();
+		const configurationService = new TestLanguageModelsConfigurationService(initialGroups);
+		const storageService = new TestStorageService();
+		const service = new LanguageModelsService(
+			new class extends mock<IExtensionService>() { override activateByEvent() { return Promise.resolve(); } },
+			new NullLogService(),
+			storageService,
+			new MockContextKeyService(),
+			configurationService,
+			new class extends mock<IQuickInputService>() { },
+			secretStorage,
+			new class extends mock<IProductService>() { override readonly version = '1.100.0'; },
+			new class extends mock<IRequestService>() { },
+		);
+
+		service.deltaLanguageModelChatProviderDescriptors([{
+			vendor: 'secret-vendor',
+			displayName: 'Secret Vendor',
+			configuration: {
+				type: 'object',
+				properties: {
+					apiKey: { type: 'string', secret: true },
+					additionalHeaders: { type: 'string', secret: true },
+					baseUrl: { type: 'string' }
+				}
+			// TypeFromJsonSchema cannot represent this nested draft-07 schema in the test descriptor.
+			} as unknown as undefined,
+			managementCommand: undefined,
+			when: undefined
+		}], []);
+
+		const providerRegistration = registerProvider
+			? service.registerLanguageModelProvider('secret-vendor', {
+				onDidChange: Event.None,
+				provideLanguageModelChatInfo: async () => [],
+				sendChatRequest: async () => { throw new Error(); },
+				provideTokenCount: async () => { throw new Error(); }
+			})
+			: undefined;
+
+		return {
+			configurationService,
+			secretStorage,
+			service,
+				dispose: () => {
+				providerRegistration?.dispose();
+				service.dispose();
+				configurationService.dispose();
+				storageService.dispose();
+				secretStorage.dispose();
+			}
+		};
+	}
+
+	function getStoredSecretKey(group: ILanguageModelsProviderGroup, property = 'apiKey'): string {
+		const reference = group[property];
+		assert.strictEqual(typeof reference, 'string');
+		const match = /^\$\{input:(.+)\}$/.exec(reference as string);
+		assert.ok(match);
+		return match[1];
+	}
 
 	setup(function () {
 
@@ -135,165 +247,450 @@ suite('LanguageModels', function () {
 		assert.deepStrictEqual(result2.length, 0);
 	});
 
-	test('stores secret provider configuration directly in JSON when adding a group', async function () {
-		const secretStorage = new TestSecretStorageService();
-		let groups: any[] = [];
-		const configurationService = new class extends mock<ILanguageModelsConfigurationService>() {
-			override readonly onDidChangeLanguageModelGroups = Event.None;
-			override getLanguageModelsProviderGroups() { return groups; }
-			override async addLanguageModelsProviderGroup(group: any) { groups = [...groups, group]; return group; }
-			override async updateLanguageModelsProviderGroup(_from: any, to: any) { groups = [to]; return to; }
-			override async removeLanguageModelsProviderGroup(): Promise<void> { }
-			override async configureLanguageModels(): Promise<void> { }
-		};
+	test('classifies provider connection failures with stable error codes', async function () {
+		const cases: readonly { detail: string; errorCode: LanguageModelsProviderConnectionErrorCode }[] = [
+			{ detail: 'connect ECONNREFUSED 127.0.0.1:11434', errorCode: 'unreachable' },
+			{ detail: 'HTTP 401 Unauthorized', errorCode: 'authenticationFailed' },
+			{ detail: 'Model pointer-test-model was not found', errorCode: 'modelNotFound' },
+			{ detail: 'The provider returned an empty model list', errorCode: 'noModels' },
+			{ detail: 'Invalid response format from the OpenAI-compatible endpoint', errorCode: 'incompatibleProtocol' },
+			{ detail: 'Request timed out', errorCode: 'timeout' },
+			{ detail: 'self-signed certificate in certificate chain', errorCode: 'tls' },
+			{ detail: 'Tool calling capability is unsupported', errorCode: 'capabilityUnsupported' },
+			{ detail: 'HTTP 503 Service Unavailable', errorCode: 'providerUnavailable' },
+			{ detail: 'Unexpected provider failure', errorCode: 'unknown' }
+		];
 
-		const service = new LanguageModelsService(
-			new class extends mock<IExtensionService>() { override activateByEvent() { return Promise.resolve(); } },
-			new NullLogService(),
-			new TestStorageService(),
-			new MockContextKeyService(),
-			configurationService,
-			new class extends mock<IQuickInputService>() { },
-			secretStorage,
-			new class extends mock<IProductService>() { override readonly version = '1.100.0'; },
-			new class extends mock<IRequestService>() { },
-		);
+		for (const [index, testCase] of cases.entries()) {
+			const vendor = `connection-test-${index}`;
+			languageModels.deltaLanguageModelChatProviderDescriptors([
+				{ vendor, displayName: vendor, configuration: undefined, managementCommand: undefined, when: undefined }
+			], []);
+			store.add(languageModels.registerLanguageModelProvider(vendor, {
+				onDidChange: Event.None,
+				provideLanguageModelChatInfo: async () => { throw new Error(testCase.detail); },
+				sendChatRequest: async () => { throw new Error(); },
+				provideTokenCount: async () => { throw new Error(); }
+			}));
 
-		service.deltaLanguageModelChatProviderDescriptors([{
-			vendor: 'secret-vendor',
-			displayName: 'Secret Vendor',
-			configuration: {
-				type: 'object',
-				properties: {
-					apiKey: { type: 'string', secret: true },
-					baseUrl: { type: 'string' }
-				}
-			} as any,
-			managementCommand: undefined,
-			when: undefined
-		}], []);
-
-		await service.addLanguageModelsProviderGroup('Secret Vendor', 'secret-vendor', {
-			baseUrl: 'https://example.com/v1',
-			apiKey: 'secret-123'
-		});
-
-		assert.strictEqual(groups.length, 1);
-		assert.strictEqual(groups[0].apiKey, 'secret-123');
-
-		service.dispose();
+			const result = await languageModels.testProviderConnection(vendor, {});
+			assert.strictEqual(result.success, false);
+			assert.strictEqual(result.errorCode, testCase.errorCode, testCase.detail);
+		}
 	});
 
-	test('replaces directly stored secrets on provider group update', async function () {
-		const secretStorage = new TestSecretStorageService();
-		let groups: any[] = [];
-		const configurationService = new class extends mock<ILanguageModelsConfigurationService>() {
-			override readonly onDidChangeLanguageModelGroups = Event.None;
-			override getLanguageModelsProviderGroups() { return groups; }
-			override async addLanguageModelsProviderGroup(group: any) { groups = [...groups, group]; return group; }
-			override async updateLanguageModelsProviderGroup(_from: any, to: any) { groups = [to]; return to; }
-			override async removeLanguageModelsProviderGroup(): Promise<void> { }
-			override async configureLanguageModels(): Promise<void> { }
-		};
+	test('reports a successful connection with zero discovered models as noModels', async function () {
+		const vendor = 'connection-test-no-models';
+		languageModels.deltaLanguageModelChatProviderDescriptors([
+			{ vendor, displayName: vendor, configuration: undefined, managementCommand: undefined, when: undefined }
+		], []);
+		store.add(languageModels.registerLanguageModelProvider(vendor, {
+			onDidChange: Event.None,
+			provideLanguageModelChatInfo: async () => [],
+			sendChatRequest: async () => { throw new Error(); },
+			provideTokenCount: async () => { throw new Error(); }
+		}));
 
-		const service = new LanguageModelsService(
-			new class extends mock<IExtensionService>() { override activateByEvent() { return Promise.resolve(); } },
-			new NullLogService(),
-			new TestStorageService(),
-			new MockContextKeyService(),
-			configurationService,
-			new class extends mock<IQuickInputService>() { },
-			secretStorage,
-			new class extends mock<IProductService>() { override readonly version = '1.100.0'; },
-			new class extends mock<IRequestService>() { },
-		);
+		const result = await languageModels.testProviderConnection(vendor, {});
+		assert.strictEqual(result.success, true);
+		assert.strictEqual(result.errorCode, 'noModels');
+		assert.deepStrictEqual(result.models, []);
+		assert.strictEqual(result.error, undefined);
+	});
 
-		service.deltaLanguageModelChatProviderDescriptors([{
-			vendor: 'secret-vendor',
-			displayName: 'Secret Vendor',
-			configuration: {
-				type: 'object',
-				properties: {
-					apiKey: { type: 'string', secret: true },
-					baseUrl: { type: 'string' }
-				}
-			} as any,
-			managementCommand: undefined,
-			when: undefined
-		}], []);
+	test('preserves exact provider model metadata and the legacy token total', async function () {
+		const vendor = 'connection-test-model-metadata';
+		languageModels.deltaLanguageModelChatProviderDescriptors([
+			{ vendor, displayName: vendor, configuration: undefined, managementCommand: undefined, when: undefined }
+		], []);
+		store.add(languageModels.registerLanguageModelProvider(vendor, {
+			onDidChange: Event.None,
+			provideLanguageModelChatInfo: async () => [{
+				identifier: `${vendor}/plain-model`,
+				metadata: {
+					extension: nullExtensionDescription.identifier,
+					name: 'Provider Metadata Model',
+					vendor,
+					family: 'plain-model',
+					version: '1.0.0',
+					modelPickerCategory: undefined,
+					id: 'plain-model',
+					maxInputTokens: 32768,
+					maxOutputTokens: 4096,
+					isDefaultForLocation: {},
+					capabilities: {
+						vision: false,
+						toolCalling: true,
+						agentMode: false,
+						editTools: ['apply_patch']
+					}
+				} satisfies ILanguageModelChatMetadata
+			}],
+			sendChatRequest: async () => { throw new Error(); },
+			provideTokenCount: async () => { throw new Error(); }
+		}));
+
+		const result = await languageModels.testProviderConnection(vendor, {});
+
+		assert.strictEqual(result.success, true);
+		assert.deepStrictEqual(result.models, [{
+			id: 'plain-model',
+			name: 'Provider Metadata Model',
+			maxInputTokens: 32768,
+			maxOutputTokens: 4096,
+			capabilities: {
+				vision: false,
+				toolCalling: true,
+				agentMode: false,
+				editTools: ['apply_patch']
+			},
+			tokens: 36864
+		}]);
+	});
+
+	test('redacts configured API keys and additional header values from connection diagnostics', async function () {
+		const { service, dispose } = createSecretProviderService();
+		const providerRegistration = service.registerLanguageModelProvider('secret-vendor', {
+			onDidChange: Event.None,
+			provideLanguageModelChatInfo: async options => {
+				throw new Error(`HTTP 401 rejected ${options.configuration?.apiKey}; headers ${options.configuration?.additionalHeaders}; token header-secret-456`);
+			},
+			sendChatRequest: async () => { throw new Error(); },
+			provideTokenCount: async () => { throw new Error(); }
+		});
+
+		const result = await service.testProviderConnection('secret-vendor', {
+			apiKey: 'api-secret-123',
+			additionalHeaders: 'X-Organization: header-secret-456'
+		});
+
+		assert.strictEqual(result.errorCode, 'authenticationFailed');
+		assert.ok(result.error?.includes('[redacted]'));
+		assert.ok(!result.error?.includes('api-secret-123'));
+		assert.ok(!result.error?.includes('X-Organization: header-secret-456'));
+		assert.ok(!result.error?.includes('header-secret-456'));
+
+		providerRegistration.dispose();
+		dispose();
+	});
+
+	test('stores secret provider configuration in secret storage when adding a group', async function () {
+		const { configurationService, secretStorage, service, dispose } = createSecretProviderService();
+
+		await service.addLanguageModelsProviderGroup('Secret Vendor', 'secret-vendor', {
+			baseUrl: 'https://example.com/v1',
+			apiKey: 'secret-123',
+			additionalHeaders: 'X-Organization: secret-header-value'
+		});
+
+		assert.strictEqual(configurationService.groups.length, 1);
+		assert.strictEqual(configurationService.groups[0].baseUrl, 'https://example.com/v1');
+		const secretKey = getStoredSecretKey(configurationService.groups[0]);
+		assert.strictEqual(await secretStorage.get(secretKey), 'secret-123');
+		const headersSecretKey = getStoredSecretKey(configurationService.groups[0], 'additionalHeaders');
+		assert.strictEqual(await secretStorage.get(headersSecretKey), 'X-Organization: secret-header-value');
+
+		dispose();
+	});
+
+	test('preserves the stored secret on blank and masked provider group updates', async function () {
+		const { configurationService, secretStorage, service, dispose } = createSecretProviderService();
 
 		await service.addLanguageModelsProviderGroup('Secret Vendor', 'secret-vendor', {
 			baseUrl: 'https://example.com/v1',
 			apiKey: 'secret-123'
 		});
-		const existing = groups[0];
+		let existing = configurationService.groups[0];
+		const reference = existing.apiKey;
+		const secretKey = getStoredSecretKey(existing);
+
+		await service.updateLanguageModelsProviderGroup(existing, 'Secret Vendor', 'secret-vendor', {
+			baseUrl: 'https://example.com/v2',
+			apiKey: ''
+		});
+
+		assert.strictEqual(configurationService.groups[0].apiKey, reference);
+		assert.strictEqual(await secretStorage.get(secretKey), 'secret-123');
+
+		existing = configurationService.groups[0];
+		await service.updateLanguageModelsProviderGroup(existing, 'Secret Vendor', 'secret-vendor', {
+			baseUrl: 'https://example.com/v3',
+			apiKey: reference
+		});
+
+		assert.strictEqual(configurationService.groups[0].apiKey, reference);
+		assert.strictEqual(await secretStorage.get(secretKey), 'secret-123');
+
+		dispose();
+	});
+
+	test('removes only the explicitly cleared stored secret on provider group update', async function () {
+		const { configurationService, secretStorage, service, dispose } = createSecretProviderService();
+
+		await service.addLanguageModelsProviderGroup('Secret Vendor', 'secret-vendor', {
+			baseUrl: 'https://example.com/v1',
+			apiKey: 'secret-123',
+			additionalHeaders: 'X-Organization: secret-header-value'
+		});
+		const existing = configurationService.groups[0];
+		const apiKeySecretKey = getStoredSecretKey(existing);
+		const headersReference = existing.additionalHeaders;
+		const headersSecretKey = getStoredSecretKey(existing, 'additionalHeaders');
+
+		await service.updateLanguageModelsProviderGroup(existing, 'Secret Vendor', 'secret-vendor', {
+			baseUrl: 'https://example.com/v2',
+			apiKey: null,
+			additionalHeaders: headersReference
+		});
+
+		assert.strictEqual(configurationService.groups[0].apiKey, undefined);
+		assert.strictEqual(configurationService.groups[0].additionalHeaders, headersReference);
+		assert.strictEqual(await secretStorage.get(apiKeySecretKey), undefined);
+		assert.strictEqual(await secretStorage.get(headersSecretKey), 'X-Organization: secret-header-value');
+
+		dispose();
+	});
+
+	test('clones secret references into group-owned secret storage entries when adding a group', async function () {
+		const { configurationService, secretStorage, service, dispose } = createSecretProviderService();
+
+		await service.addLanguageModelsProviderGroup('Original', 'secret-vendor', {
+			baseUrl: 'https://example.com/v1',
+			apiKey: 'secret-123',
+			additionalHeaders: 'X-Organization: secret-header-value'
+		});
+		const original = configurationService.groups[0];
+		const originalApiKeyReference = original.apiKey;
+		const originalHeadersReference = original.additionalHeaders;
+		const originalApiKeySecretKey = getStoredSecretKey(original);
+		const originalHeadersSecretKey = getStoredSecretKey(original, 'additionalHeaders');
+
+		await service.addLanguageModelsProviderGroup('Copy', 'secret-vendor', {
+			baseUrl: original.baseUrl,
+			apiKey: originalApiKeyReference,
+			additionalHeaders: originalHeadersReference
+		});
+		const copy = configurationService.groups[1];
+		const copyApiKeySecretKey = getStoredSecretKey(copy);
+		const copyHeadersSecretKey = getStoredSecretKey(copy, 'additionalHeaders');
+
+		assert.notStrictEqual(copy.apiKey, originalApiKeyReference);
+		assert.notStrictEqual(copy.additionalHeaders, originalHeadersReference);
+		assert.notStrictEqual(copyApiKeySecretKey, originalApiKeySecretKey);
+		assert.notStrictEqual(copyHeadersSecretKey, originalHeadersSecretKey);
+		assert.strictEqual(await secretStorage.get(copyApiKeySecretKey), 'secret-123');
+		assert.strictEqual(await secretStorage.get(copyHeadersSecretKey), 'X-Organization: secret-header-value');
+
+		await service.updateLanguageModelsProviderGroup(copy, 'Copy', 'secret-vendor', {
+			baseUrl: 'https://example.com/v2',
+			apiKey: 'copy-secret-456',
+			additionalHeaders: copy.additionalHeaders
+		});
+		assert.strictEqual(await secretStorage.get(originalApiKeySecretKey), 'secret-123');
+
+		await service.removeLanguageModelsProviderGroup('secret-vendor', 'Copy');
+		assert.strictEqual(configurationService.groups.length, 1);
+		assert.strictEqual(await secretStorage.get(originalApiKeySecretKey), 'secret-123');
+		assert.strictEqual(await secretStorage.get(originalHeadersSecretKey), 'X-Organization: secret-header-value');
+
+		dispose();
+	});
+
+	test('cleans up cloned secret entries when adding a provider group fails', async function () {
+		const { configurationService, secretStorage, service, dispose } = createSecretProviderService();
+
+		await service.addLanguageModelsProviderGroup('Original', 'secret-vendor', {
+			apiKey: 'secret-123',
+			additionalHeaders: 'X-Organization: secret-header-value'
+		});
+		const original = configurationService.groups[0];
+		const originalSecretKeys = (await secretStorage.keys()).sort();
+		configurationService.failAdd = true;
+
+		await assert.rejects(() => service.addLanguageModelsProviderGroup('Copy', 'secret-vendor', {
+			apiKey: original.apiKey,
+			additionalHeaders: original.additionalHeaders
+		}), /Simulated provider group add failure/);
+
+		assert.strictEqual(configurationService.groups.length, 1);
+		assert.deepStrictEqual((await secretStorage.keys()).sort(), originalSecretKeys);
+
+		dispose();
+	});
+
+	test('replaces a stored secret through a newly committed reference', async function () {
+		const { configurationService, secretStorage, service, dispose } = createSecretProviderService();
+
+		await service.addLanguageModelsProviderGroup('Secret Vendor', 'secret-vendor', {
+			baseUrl: 'https://example.com/v1',
+			apiKey: 'secret-123'
+		});
+		const existing = configurationService.groups[0];
+		const reference = existing.apiKey;
+		const secretKey = getStoredSecretKey(existing);
 
 		await service.updateLanguageModelsProviderGroup(existing, 'Secret Vendor', 'secret-vendor', {
 			baseUrl: 'https://example.com/v2',
 			apiKey: 'secret-456'
 		});
 
-		assert.strictEqual(groups[0].apiKey, 'secret-456');
+		const replacementSecretKey = getStoredSecretKey(configurationService.groups[0]);
+		assert.notStrictEqual(configurationService.groups[0].apiKey, reference);
+		assert.notStrictEqual(replacementSecretKey, secretKey);
+		assert.strictEqual(await secretStorage.get(secretKey), undefined);
+		assert.strictEqual(await secretStorage.get(replacementSecretKey), 'secret-456');
 
-		service.dispose();
+		dispose();
 	});
 
-	test('removes stored secrets when the provider group no longer references them', async function () {
-		const secretStorage = new TestSecretStorageService();
-		let groups: any[] = [];
-		const configurationService = new class extends mock<ILanguageModelsConfigurationService>() {
-			override readonly onDidChangeLanguageModelGroups = Event.None;
-			override getLanguageModelsProviderGroups() { return groups; }
-			override async addLanguageModelsProviderGroup(group: any) { groups = [...groups, group]; return group; }
-			override async updateLanguageModelsProviderGroup(_from: any, to: any) { groups = [to]; return to; }
-			override async removeLanguageModelsProviderGroup(): Promise<void> { }
-			override async configureLanguageModels(): Promise<void> { }
-		};
+	test('rolls back staged provider secrets when updating the configuration fails', async function () {
+		const { configurationService, secretStorage, service, dispose } = createSecretProviderService();
 
-		const service = new LanguageModelsService(
-			new class extends mock<IExtensionService>() { override activateByEvent() { return Promise.resolve(); } },
-			new NullLogService(),
-			new TestStorageService(),
-			new MockContextKeyService(),
-			configurationService,
-			new class extends mock<IQuickInputService>() { },
-			secretStorage,
-			new class extends mock<IProductService>() { override readonly version = '1.100.0'; },
-			new class extends mock<IRequestService>() { },
-		);
+		await service.addLanguageModelsProviderGroup('Secret Vendor', 'secret-vendor', {
+			baseUrl: 'https://example.com/v1',
+			apiKey: 'secret-123'
+		});
+		const existing = configurationService.groups[0];
+		const originalReference = existing.apiKey;
+		const originalSecretKey = getStoredSecretKey(existing);
+		const originalSecretKeys = (await secretStorage.keys()).sort();
+		configurationService.failUpdate = true;
 
-		service.deltaLanguageModelChatProviderDescriptors([{
+		await assert.rejects(() => service.updateLanguageModelsProviderGroup(existing, 'Secret Vendor', 'secret-vendor', {
+			baseUrl: 'https://example.com/v2',
+			apiKey: 'secret-456'
+		}), /Simulated provider group update failure/);
+
+		assert.strictEqual(configurationService.groups[0], existing);
+		assert.strictEqual(configurationService.groups[0].apiKey, originalReference);
+		assert.strictEqual(await secretStorage.get(originalSecretKey), 'secret-123');
+		assert.deepStrictEqual((await secretStorage.keys()).sort(), originalSecretKeys);
+
+		dispose();
+	});
+
+	test('resolves a provider once from the configuration change after updating a group', async function () {
+		const existing: ILanguageModelsProviderGroup = {
+			name: 'Secret Vendor',
 			vendor: 'secret-vendor',
-			displayName: 'Secret Vendor',
-			configuration: {
-				type: 'object',
-				properties: {
-					apiKey: { type: 'string', secret: true },
-					baseUrl: { type: 'string' }
+			baseUrl: 'https://example.com/v1'
+		};
+		const { configurationService, service, dispose } = createSecretProviderService([existing]);
+		const requests: { group: string | undefined; silent: boolean }[] = [];
+		const resolutionFinished = new DeferredPromise<void>();
+		const providerRegistration = service.registerLanguageModelProvider('secret-vendor', {
+			onDidChange: Event.None,
+			provideLanguageModelChatInfo: async options => {
+				requests.push({ group: options.group, silent: options.silent });
+				if (requests.length === 2) {
+					await resolutionFinished.complete(undefined);
 				}
-			} as any,
-			managementCommand: undefined,
-			when: undefined
-		}], []);
+				return [];
+			},
+			sendChatRequest: async () => { throw new Error(); },
+			provideTokenCount: async () => { throw new Error(); }
+		});
+		configurationService.emitChanges = true;
 
-		const oldSecretKey = 'chat.lm.secret.legacy';
-		await secretStorage.set(oldSecretKey, 'secret-123');
-		const existing = {
+		await service.updateLanguageModelsProviderGroup(existing, 'Secret Vendor', 'secret-vendor', {
+			baseUrl: 'https://example.com/v2'
+		});
+		await resolutionFinished.p;
+		await timeout(0);
+
+		assert.deepStrictEqual(requests, [
+			{ group: undefined, silent: true },
+			{ group: 'Secret Vendor', silent: true }
+		]);
+
+		providerRegistration.dispose();
+		dispose();
+	});
+
+	test('rejects a colliding provider rename before mutating configuration or secrets', async function () {
+		const { configurationService, secretStorage, service, dispose } = createSecretProviderService();
+
+		await service.addLanguageModelsProviderGroup('Provider A', 'secret-vendor', {
+			baseUrl: 'https://a.example/v1',
+			apiKey: 'secret-a'
+		});
+		await service.addLanguageModelsProviderGroup('Provider B', 'secret-vendor', {
+			baseUrl: 'https://b.example/v1',
+			apiKey: 'secret-b'
+		});
+
+		const providerA = configurationService.groups[0];
+		const providerASecretKey = getStoredSecretKey(providerA);
+		const providerBSecretKey = getStoredSecretKey(configurationService.groups[1]);
+		const originalGroups = configurationService.groups.map(group => ({ ...group }));
+		const originalSecretKeys = (await secretStorage.keys()).sort();
+
+		await assert.rejects(() => service.updateLanguageModelsProviderGroup(providerA, 'Provider B', 'secret-vendor', {
+			baseUrl: 'https://replacement.example/v1',
+			apiKey: 'replacement-secret'
+		}), /already exists/);
+
+		assert.deepStrictEqual(configurationService.groups, originalGroups);
+		assert.deepStrictEqual((await secretStorage.keys()).sort(), originalSecretKeys);
+		assert.strictEqual(await secretStorage.get(providerASecretKey), 'secret-a');
+		assert.strictEqual(await secretStorage.get(providerBSecretKey), 'secret-b');
+
+		dispose();
+	});
+
+	test('migrates plaintext secrets on provider group update', async function () {
+		const existing: ILanguageModelsProviderGroup = {
 			name: 'Secret Vendor',
 			vendor: 'secret-vendor',
 			baseUrl: 'https://example.com/v1',
-			apiKey: `\${input:${oldSecretKey}}`
+			apiKey: 'secret-123'
 		};
-		groups = [existing];
+		const { configurationService, secretStorage, service, dispose } = createSecretProviderService([existing]);
 
 		await service.updateLanguageModelsProviderGroup(existing, 'Secret Vendor', 'secret-vendor', {
 			baseUrl: 'https://example.com/v2'
 		});
 
-		assert.strictEqual(groups[0].apiKey, undefined);
-		assert.strictEqual(await secretStorage.get(oldSecretKey), undefined);
+		const secretKey = getStoredSecretKey(configurationService.groups[0]);
+		assert.strictEqual(await secretStorage.get(secretKey), 'secret-123');
+		assert.notStrictEqual(configurationService.groups[0].apiKey, 'secret-123');
 
-		service.dispose();
+		dispose();
+	});
+
+	test('migrates plaintext secrets when loading a provider group', async function () {
+		const existing: ILanguageModelsProviderGroup = {
+			name: 'Secret Vendor',
+			vendor: 'secret-vendor',
+			baseUrl: 'https://example.com/v1',
+			apiKey: 'secret-123'
+		};
+		const { configurationService, secretStorage, service, dispose } = createSecretProviderService([existing], true);
+
+		await service.selectLanguageModels({ vendor: 'secret-vendor' });
+
+		const secretKey = getStoredSecretKey(configurationService.groups[0]);
+		assert.strictEqual(await secretStorage.get(secretKey), 'secret-123');
+		assert.notStrictEqual(configurationService.groups[0].apiKey, 'secret-123');
+
+		dispose();
+	});
+
+	test('removes stored secrets with the provider group', async function () {
+		const { configurationService, secretStorage, service, dispose } = createSecretProviderService();
+
+		await service.addLanguageModelsProviderGroup('Secret Vendor', 'secret-vendor', {
+			baseUrl: 'https://example.com/v1',
+			apiKey: 'secret-123'
+		});
+		const secretKey = getStoredSecretKey(configurationService.groups[0]);
+
+		await service.removeLanguageModelsProviderGroup('secret-vendor', 'Secret Vendor');
+
+		assert.strictEqual(configurationService.groups.length, 0);
+		assert.strictEqual(await secretStorage.get(secretKey), undefined);
+
+		dispose();
 	});
 
 	test('sendChatRequest returns a response-stream', async function () {
@@ -1519,5 +1916,78 @@ suite('LanguageModels - Provider Group Detail Fallback', function () {
 			{ localDetail: local?.detail, remoteDetail: remote?.detail },
 			{ localDetail: 'Detailed (Local)', remoteDetail: 'Detailed (Remote)' }
 		);
+	});
+
+	test('explicit default profile selects only that provider group for Chat and Edit defaults', async function () {
+		const configurationService = new class extends mock<ILanguageModelsConfigurationService>() {
+			override onDidChangeLanguageModelGroups = Event.None;
+			override getLanguageModelsProviderGroups() {
+				return [
+					{ vendor: 'profile-vendor-a', name: 'Profile A', defaultChatModel: 'shared-model', defaultCodingModel: 'shared-model' },
+					{ vendor: 'profile-vendor-b', name: 'Profile B', defaultChatModel: 'shared-model', defaultCodingModel: 'shared-model', isDefaultProfile: true }
+				];
+			}
+		};
+		const service = disposables.add(new LanguageModelsService(
+			new class extends mock<IExtensionService>() {
+				override activateByEvent() {
+					return Promise.resolve();
+				}
+			},
+			new NullLogService(),
+			disposables.add(new TestStorageService()),
+			new MockContextKeyService(),
+			configurationService,
+			new class extends mock<IQuickInputService>() { },
+			new TestSecretStorageService(),
+			new class extends mock<IProductService>() { override readonly version = '1.100.0'; },
+			new class extends mock<IRequestService>() { },
+		));
+
+		service.deltaLanguageModelChatProviderDescriptors([
+			{ vendor: 'profile-vendor-a', displayName: 'Profile Vendor A', configuration: {} as unknown as undefined, managementCommand: undefined, when: undefined },
+			{ vendor: 'profile-vendor-b', displayName: 'Profile Vendor B', configuration: {} as unknown as undefined, managementCommand: undefined, when: undefined }
+		], []);
+
+		for (const vendor of ['profile-vendor-a', 'profile-vendor-b']) {
+			disposables.add(service.registerLanguageModelProvider(vendor, {
+				onDidChange: Event.None,
+				provideLanguageModelChatInfo: async (options) => {
+					if (!options.group) {
+						return [];
+					}
+					return [{
+						metadata: {
+							extension: nullExtensionDescription.identifier,
+							name: 'Shared Model',
+							vendor,
+							family: 'shared',
+							version: '1.0',
+							id: 'shared-model',
+							maxInputTokens: 100,
+							maxOutputTokens: 100,
+							modelPickerCategory: DEFAULT_MODEL_PICKER_CATEGORY,
+							isDefaultForLocation: {
+								[ChatAgentLocation.Chat]: true,
+								[ChatAgentLocation.EditorInline]: true
+							}
+						} satisfies ILanguageModelChatMetadata,
+						identifier: `${vendor}/${options.group}/shared-model`
+					}];
+				},
+				sendChatRequest: async () => { throw new Error(); },
+				provideTokenCount: async () => { throw new Error(); }
+			}));
+		}
+
+		await service.selectLanguageModels({});
+
+		const profileA = service.lookupLanguageModel('profile-vendor-a/Profile A/shared-model');
+		const profileB = service.lookupLanguageModel('profile-vendor-b/Profile B/shared-model');
+
+		assert.strictEqual(profileA?.isDefaultForLocation[ChatAgentLocation.Chat], false);
+		assert.strictEqual(profileA?.isDefaultForLocation[ChatAgentLocation.EditorInline], false);
+		assert.strictEqual(profileB?.isDefaultForLocation[ChatAgentLocation.Chat], true);
+		assert.strictEqual(profileB?.isDefaultForLocation[ChatAgentLocation.EditorInline], true);
 	});
 });

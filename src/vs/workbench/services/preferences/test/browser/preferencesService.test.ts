@@ -20,15 +20,18 @@ import { IPreferencesService, ISettingsEditorOptions } from '../../common/prefer
 import { IRemoteAgentService } from '../../../remote/common/remoteAgentService.js';
 import { TestRemoteAgentService, ITestInstantiationService, workbenchInstantiationService, TestEditorService } from '../../../../test/browser/workbenchTestServices.js';
 import { IEditorOptions } from '../../../../../platform/editor/common/editor.js';
+import { TestConfigurationService } from '../../../../../platform/configuration/test/common/testConfigurationService.js';
 
 suite('PreferencesService', () => {
 	let testInstantiationService: ITestInstantiationService;
 	let testObject: PreferencesService;
+	let configurationService: TestConfigurationService;
 	let lastOpenEditorOptions: IEditorOptions | undefined;
 	const disposables = ensureNoDisposablesAreLeakedInTestSuite();
 
 	setup(() => {
-		testInstantiationService = workbenchInstantiationService({}, disposables);
+		configurationService = new TestConfigurationService();
+		testInstantiationService = workbenchInstantiationService({ configurationService: () => configurationService }, disposables);
 
 		class TestPreferencesEditorService extends TestEditorService {
 			override async openEditor(editor: EditorInput | IUntypedEditorInput, optionsOrGroup?: IEditorOptions | PreferredGroup, group?: PreferredGroup): Promise<undefined> {
@@ -59,5 +62,33 @@ suite('PreferencesService', () => {
 		assert.strictEqual(options.focusSearch, true);
 		assert.strictEqual(options.override, DEFAULT_EDITOR_ASSOCIATION.id);
 		assert.strictEqual(options.query, 'test query');
+	});
+
+	test('visual category navigation preserves explicit focus and category options', async () => {
+		await testObject.openSettings({ jsonEditor: false, revealCategory: 'chat', focusSearch: false });
+		const options = lastOpenEditorOptions as ISettingsEditorOptions;
+		assert.strictEqual(options.focusSearch, false);
+		assert.strictEqual(options.revealCategory, 'chat');
+		assert.strictEqual(options.override, DEFAULT_EDITOR_ASSOCIATION.id);
+	});
+
+	test('visual category navigation overrides the default JSON settings editor', async () => {
+		await configurationService.setUserConfiguration('workbench.settings.editor', 'json');
+
+		await testObject.openSettings({ revealCategory: 'chat' });
+		const options = lastOpenEditorOptions as ISettingsEditorOptions;
+		assert.strictEqual(options.revealCategory, 'chat');
+		assert.strictEqual(options.focusSearch, false);
+		assert.strictEqual(options.override, DEFAULT_EDITOR_ASSOCIATION.id);
+	});
+
+	test('category options replace options on an already requested visual settings editor', async () => {
+		await testObject.openSettings({ jsonEditor: false, query: 'editor font' });
+		await testObject.openSettings({ revealCategory: 'chat', focusSearch: false });
+
+		const options = lastOpenEditorOptions as ISettingsEditorOptions;
+		assert.strictEqual(options.query, undefined);
+		assert.strictEqual(options.revealCategory, 'chat');
+		assert.strictEqual(options.focusSearch, false);
 	});
 });

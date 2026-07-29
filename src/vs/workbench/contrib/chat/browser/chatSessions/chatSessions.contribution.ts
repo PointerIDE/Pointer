@@ -390,7 +390,7 @@ export class ChatSessionsService extends Disposable implements IChatSessionsServ
 	}
 
 	private reportInProgress(chatSessionType: string, count: number): void {
-		if (!this._itemControllers.has(chatSessionType)) {
+		if (!this._itemControllers.has(chatSessionType) && !getAgentSessionProvider(chatSessionType) && !this._contributions.has(chatSessionType)) {
 			this._logService.warn(`Attempted to report in-progress status for unknown chat session type '${chatSessionType}'`);
 		}
 

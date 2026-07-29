@@ -126,6 +126,7 @@ export interface IEndpointBody {
 
 export interface IEndpointFetchOptions {
 	suppressIntegrationId?: boolean;
+	requestTimeout?: number;
 }
 
 export interface IEndpoint {
@@ -424,7 +425,7 @@ function networkRequest(
 				intent;
 
 	const headers: ReqHeaders = {
-		Authorization: `Bearer ${secretKey}`,
+		...(secretKey ? { Authorization: `Bearer ${secretKey}` } : {}),
 		'X-Request-Id': requestId,
 		'OpenAI-Intent': intent, // Tells CAPI who flighted this request. Helps find buggy features
 		'X-GitHub-Api-Version': '2026-01-09',
@@ -444,7 +445,7 @@ function networkRequest(
 		method: requestType,
 		headers: headers,
 		json: body,
-		timeout: requestTimeoutMs,
+		timeout: endpointFetchOptions?.requestTimeout ?? requestTimeoutMs,
 		useFetcher,
 		suppressIntegrationId: endpointFetchOptions?.suppressIntegrationId
 	};

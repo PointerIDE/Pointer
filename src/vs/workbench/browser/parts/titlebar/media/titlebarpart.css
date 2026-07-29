@@ -290,10 +290,22 @@
 }
 
 .monaco-workbench .part.titlebar > .titlebar-container > .titlebar-left > .window-appicon:not(.codicon) {
-	background-image: url('../../../media/code-icon.svg');
+	background-image: url('../../../../../../img/logo-pntr-w.png');
 	background-repeat: no-repeat;
 	background-position: center center;
-	background-size: 16px;
+	background-size: 17px;
+	background-color: transparent;
+	border: 0;
+	border-radius: 0;
+	filter: drop-shadow(0 1px 5px rgba(255, 255, 255, 0.12));
+}
+
+.monaco-workbench .part.titlebar > .titlebar-container > .titlebar-left > .window-appicon:not(.codicon):hover {
+	background-color: transparent;
+}
+
+.monaco-workbench.vs .part.titlebar > .titlebar-container > .titlebar-left > .window-appicon:not(.codicon) {
+	filter: invert(1) drop-shadow(0 1px 4px rgba(0, 0, 0, 0.12));
 }
 
 .monaco-workbench .part.titlebar > .titlebar-container > .titlebar-left > .window-appicon.codicon {

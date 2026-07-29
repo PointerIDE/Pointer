@@ -211,6 +211,11 @@ export interface ISettingsEditorOptions extends IEditorOptions {
 	folderUri?: URI;
 	query?: string;
 	/**
+	 * Opens the visual settings editor at the category with this stable layout id.
+	 * Category navigation clears an active settings search before applying the request.
+	 */
+	revealCategory?: string;
+	/**
 	 * Only works when opening the json settings file. Use `query` for settings editor.
 	 */
 	revealSetting?: {

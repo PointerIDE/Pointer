@@ -5,11 +5,17 @@
 
 import { Disposable } from '../../../../base/common/lifecycle.js';
 import { localize } from '../../../../nls.js';
+import { IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
 import { INotificationService, NeverShowAgainScope, Severity } from '../../../../platform/notification/common/notification.js';
 import { IWorkbenchContribution } from '../../../common/contributions.js';
 import { IExtensionsWorkbenchService } from '../../extensions/common/extensions.js';
 import { IChatService } from '../common/chatService/chatService.js';
 import { IPluginMarketplaceService } from '../common/plugins/pluginMarketplaceService.js';
+
+/** Returns whether automatic agent-plugin recommendation prompts are enabled. */
+export function shouldPromptForAgentPluginRecommendations(configurationService: IConfigurationService): boolean {
+	return configurationService.getValue<boolean>('extensions.ignoreRecommendations') !== true;
+}
 
 export class AgentPluginRecommendations extends Disposable implements IWorkbenchContribution {
 	static readonly ID = 'workbench.contrib.agentPluginRecommendations';
@@ -21,8 +27,13 @@ export class AgentPluginRecommendations extends Disposable implements IWorkbench
 		@IPluginMarketplaceService private readonly _pluginMarketplaceService: IPluginMarketplaceService,
 		@INotificationService private readonly _notificationService: INotificationService,
 		@IExtensionsWorkbenchService private readonly _extensionsWorkbenchService: IExtensionsWorkbenchService,
+		@IConfigurationService configurationService: IConfigurationService,
 	) {
 		super();
+
+		if (!shouldPromptForAgentPluginRecommendations(configurationService)) {
+			return;
+		}
 
 		this._register(this._chatService.onDidSubmitRequest(() => {
 			if (!this._hasNotified) {

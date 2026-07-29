@@ -515,5 +515,13 @@
 	"github.copilot.command.sessions.sync": "Sync Changes",
 	"github.copilot.command.sessions.discardChanges": "Discard Changes",
 	"github.copilot.command.sessions.refreshChanges": "Refresh",
-	"github.copilot.command.sessions.initializeRepository": "Initialize Repository"
+	"github.copilot.command.sessions.initializeRepository": "Initialize Repository",
+	"pointer.customProvider.enabled.title": "Enabled",
+	"pointer.customProvider.enabled.description": "Whether this provider profile is active.",
+	"pointer.customProvider.apiPath.title": "Chat API Path",
+	"pointer.customProvider.apiPath.description": "Optional path appended to the base URL, for example /responses or /v1/chat/completions.",
+	"pointer.customProvider.requestTimeout.title": "Request Timeout",
+	"pointer.customProvider.requestTimeout.description": "Timeout in milliseconds for model discovery and chat requests.",
+	"pointer.customProvider.additionalHeaders.title": "Additional Headers",
+	"pointer.customProvider.additionalHeaders.description": "Optional semicolon-separated headers in Header: value format. Header values are stored securely."
 }

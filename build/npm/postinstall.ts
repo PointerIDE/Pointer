@@ -7,11 +7,13 @@ import * as fs from 'fs';
 import path from 'path';
 import * as os from 'os';
 import * as child_process from 'child_process';
+import * as semver from 'semver';
 import { dirs } from './dirs.ts';
 import { root, stateFile, stateContentsFile, computeState, computeContents, isUpToDate } from './installStateHash.ts';
 
 const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 const rootNpmrcConfigKeys = getNpmrcConfigKeys(path.join(root, '.npmrc'));
+const extensionCompileDirs = dirs.filter(dir => dir.startsWith('extensions/') || dir.startsWith('.vscode/extensions/'));
 
 function log(dir: string, message: string) {
 	if (process.stdout.isTTY) {
@@ -152,6 +154,72 @@ function removeParcelWatcherPrebuild(dir: string) {
 	}
 }
 
+function getUnhealthyExtensionCompileDirs(): string[] {
+	return extensionCompileDirs.filter(dir => !isNpmDirectoryHealthy(dir));
+}
+
+function isNpmDirectoryHealthy(dir: string): boolean {
+	const directory = path.join(root, dir);
+	const packageJsonPath = path.join(directory, 'package.json');
+	const packageLockPath = path.join(directory, 'package-lock.json');
+	if (!fs.existsSync(packageJsonPath) || !fs.existsSync(packageLockPath)) {
+		return false;
+	}
+
+	const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')) as { dependencies?: Record<string, string>; devDependencies?: Record<string, string> };
+	const packageLock = JSON.parse(fs.readFileSync(packageLockPath, 'utf8')) as { packages?: Record<string, { version?: string }> };
+	const dependencyNames = new Set([
+		...Object.keys(packageJson.dependencies ?? {}),
+		...Object.keys(packageJson.devDependencies ?? {})
+	]);
+
+	for (const dependencyName of dependencyNames) {
+		const installedPackageJsonPath = path.join(directory, 'node_modules', dependencyName, 'package.json');
+		if (!fs.existsSync(installedPackageJsonPath)) {
+			return false;
+		}
+
+		const expectedVersion = packageLock.packages?.[`node_modules/${dependencyName}`]?.version;
+		if (expectedVersion) {
+			const installedPackageJson = JSON.parse(fs.readFileSync(installedPackageJsonPath, 'utf8')) as { version?: string };
+			if (!arePackageVersionsEquivalent(installedPackageJson.version, expectedVersion)) {
+				return false;
+			}
+		}
+	}
+
+	return true;
+}
+
+function arePackageVersionsEquivalent(installedVersion: string | undefined, expectedVersion: string): boolean {
+	if (!installedVersion) {
+		return false;
+	}
+
+	const installed = semver.valid(installedVersion);
+	const expected = semver.valid(expectedVersion);
+	if (installed && expected) {
+		return semver.eq(installed, expected);
+	}
+
+	const installedNumeric = parseNumericPackageVersion(installedVersion);
+	const expectedNumeric = parseNumericPackageVersion(expectedVersion);
+	if (installedNumeric && expectedNumeric) {
+		return installedNumeric === expectedNumeric;
+	}
+
+	return installedVersion === expectedVersion;
+}
+
+function parseNumericPackageVersion(version: string): string | undefined {
+	const match = /^(\d+)\.(\d+)\.(\d+)$/.exec(version);
+	if (!match) {
+		return undefined;
+	}
+
+	return `${Number(match[1])}.${Number(match[2])}.${Number(match[3])}`;
+}
+
 function getNpmrcConfigKeys(npmrcPath: string): string[] {
 	if (!fs.existsSync(npmrcPath)) {
 		return [];
@@ -234,7 +302,18 @@ async function runWithConcurrency(tasks: (() => Promise<void>)[], concurrency: n
 }
 
 async function main() {
-	if (!process.env['VSCODE_FORCE_INSTALL'] && isUpToDate()) {
+	const args = new Set(process.argv.slice(2));
+	if (args.has('--check-extension-compile-dependencies')) {
+		const unhealthyDirectories = getUnhealthyExtensionCompileDirs();
+		if (unhealthyDirectories.length > 0) {
+			console.log(JSON.stringify(unhealthyDirectories));
+			process.exitCode = 1;
+		}
+		return;
+	}
+
+	const installExtensionCompileDependencies = args.has('--install-extension-compile-dependencies');
+	if (!installExtensionCompileDependencies && !process.env['VSCODE_FORCE_INSTALL'] && isUpToDate()) {
 		log('.', 'All dependencies up to date, skipping postinstall.');
 		child_process.execSync('git config pull.rebase merges');
 		child_process.execSync('git config blame.ignoreRevsFile .git-blame-ignore-revs');
@@ -246,7 +325,7 @@ async function main() {
 	const nativeTasks: (() => Promise<void>)[] = [];
 	const parallelTasks: (() => Promise<void>)[] = [];
 
-	for (const dir of dirs) {
+	for (const dir of installExtensionCompileDependencies ? extensionCompileDirs : dirs) {
 		if (dir === '') {
 			removeParcelWatcherPrebuild(dir);
 			continue; // already executed in root
@@ -308,6 +387,10 @@ async function main() {
 	const concurrency = Math.min(os.cpus().length, 8);
 	log('.', `Running ${parallelTasks.length} npm installs with concurrency ${concurrency}...`);
 	await runWithConcurrency(parallelTasks, concurrency);
+
+	if (installExtensionCompileDependencies) {
+		return;
+	}
 
 	child_process.execSync('git config pull.rebase merges');
 	child_process.execSync('git config blame.ignoreRevsFile .git-blame-ignore-revs');

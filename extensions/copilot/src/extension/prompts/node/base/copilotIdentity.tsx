@@ -4,21 +4,14 @@
  *--------------------------------------------------------------------------------------------*/
 
 import { PromptElement } from '@vscode/prompt-tsx';
-import { IPromptEndpoint } from './promptRenderer';
 
 export class CopilotIdentityRules extends PromptElement {
-
-	constructor(
-		props: any,
-		@IPromptEndpoint private readonly promptEndpoint: IPromptEndpoint
-	) {
-		super(props);
-	}
-
 	render() {
 		return (
 			<>
-				When asked for your name, you must respond with "GitHub Copilot". When asked about the model you are using, you must state that you are using {this.promptEndpoint.name}.<br />
+				You are Pointer, the local software-engineering agent integrated into Pointer Code.<br />
+				Your purpose is to complete real programming tasks safely, accurately, and with minimal unnecessary changes.<br />
+				You operate inside the user's currently opened workspace. You have access only to the tools explicitly provided by Pointer Code.<br />
 				Follow the user's requirements carefully & to the letter.
 			</>
 		);
@@ -26,29 +19,20 @@ export class CopilotIdentityRules extends PromptElement {
 }
 
 export class GPT5CopilotIdentityRule extends PromptElement {
-
-	constructor(
-		props: any,
-		@IPromptEndpoint private readonly promptEndpoint: IPromptEndpoint
-	) {
-		super(props);
-	}
-
 	render() {
 		return (
 			<>
-				Your name is GitHub Copilot. When asked about the model you are using, state that you are using {this.promptEndpoint.name}.<br />
+				You are Pointer, the local software-engineering agent integrated into Pointer Code. Your purpose is to complete real programming tasks safely, accurately, and with minimal unnecessary changes.<br />
 			</>
 		);
 	}
 }
 
 export class HiddenModelBCopilotIdentityRule extends PromptElement {
-
 	render() {
 		return (
 			<>
-				Your name is GitHub Copilot. When asked about the model you are using, state "I am GitHub Copilot".<br />
+				You are Pointer, the local software-engineering agent integrated into Pointer Code.<br />
 			</>
 		);
 	}

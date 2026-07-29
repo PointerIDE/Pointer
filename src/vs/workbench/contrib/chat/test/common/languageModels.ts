@@ -10,7 +10,7 @@ import { Disposable, IDisposable } from '../../../../../base/common/lifecycle.js
 import { observableValue } from '../../../../../base/common/observable.js';
 import { IAction } from '../../../../../base/common/actions.js';
 import { ExtensionIdentifier } from '../../../../../platform/extensions/common/extensions.js';
-import { IChatMessage, IModelsControlManifest, ILanguageModelChatMetadata, ILanguageModelChatMetadataAndIdentifier, ILanguageModelChatProvider, ILanguageModelChatRequestOptions, ILanguageModelChatResponse, ILanguageModelChatSelector, ILanguageModelProviderDescriptor, ILanguageModelsGroup, ILanguageModelsService, IUserFriendlyLanguageModel } from '../../common/languageModels.js';
+import { IChatMessage, IModelsControlManifest, ILanguageModelChatMetadata, ILanguageModelChatMetadataAndIdentifier, ILanguageModelChatProvider, ILanguageModelChatRequestOptions, ILanguageModelChatResponse, ILanguageModelChatSelector, ILanguageModelProviderDescriptor, ILanguageModelsGroup, ILanguageModelsProviderConnectionResult, ILanguageModelsService, IUserFriendlyLanguageModel } from '../../common/languageModels.js';
 import { ILanguageModelsProviderGroup } from '../../common/languageModelsConfiguration.js';
 
 export class NullLanguageModelsService implements ILanguageModelsService {
@@ -103,7 +103,7 @@ export class NullLanguageModelsService implements ILanguageModelsService {
 	async removeLanguageModelsProviderGroup(vendorId: string, providerGroupName: string): Promise<void> {
 	}
 
-	async testProviderConnection(vendorId: string, configuration: IStringDictionary<unknown> | undefined) {
+	async testProviderConnection(vendorId: string, configuration: IStringDictionary<unknown> | undefined): Promise<ILanguageModelsProviderConnectionResult> {
 		return { success: false, models: [], error: 'Not implemented.' };
 	}
 

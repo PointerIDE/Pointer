@@ -43,6 +43,9 @@ type ExtensionWorkspaceRecommendationsNotificationClassification = {
 const ignoreImportantExtensionRecommendationStorageKey = 'extensionsAssistant/importantRecommendationsIgnore';
 const donotShowWorkspaceRecommendationsStorageKey = 'extensionsAssistant/workspaceRecommendationsIgnore';
 
+/** Default for suppressing automatic extension recommendation notifications in Pointer. */
+export const DEFAULT_IGNORE_EXTENSION_RECOMMENDATIONS = true;
+
 type RecommendationsNotificationActions = {
 	onDidInstallRecommendedExtensions(extensions: IExtension[]): void;
 	onDidShowRecommendedExtensions(extensions: IExtension[]): void;

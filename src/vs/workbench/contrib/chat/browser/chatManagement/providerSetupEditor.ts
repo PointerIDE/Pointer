@@ -6,30 +6,23 @@
 import './media/providerSetupEditor.css';
 import * as DOM from '../../../../../base/browser/dom.js';
 import { Dimension } from '../../../../../base/browser/dom.js';
-import { DisposableStore, MutableDisposable } from '../../../../../base/common/lifecycle.js';
+import { Disposable, DisposableStore } from '../../../../../base/common/lifecycle.js';
+import { IDialogService } from '../../../../../platform/dialogs/common/dialogs.js';
 import { localize } from '../../../../../nls.js';
 import { ThemeIcon } from '../../../../../base/common/themables.js';
 import { Codicon } from '../../../../../base/common/codicons.js';
-import { CancellationToken } from '../../../../../base/common/cancellation.js';
 import { IInstantiationService } from '../../../../../platform/instantiation/common/instantiation.js';
 import { IStorageService } from '../../../../../platform/storage/common/storage.js';
 import { ITelemetryService } from '../../../../../platform/telemetry/common/telemetry.js';
 import { IThemeService } from '../../../../../platform/theme/common/themeService.js';
-import { IContextKeyService } from '../../../../../platform/contextkey/common/contextkey.js';
 import { EditorPane } from '../../../../browser/parts/editor/editorPane.js';
-import { IEditorOpenContext } from '../../../../common/editor.js';
-import { IEditorOptions } from '../../../../../platform/editor/common/editor.js';
 import { IEditorGroup } from '../../../../services/editor/common/editorGroupsService.js';
 import Severity from '../../../../../base/common/severity.js';
-import { ProviderSetupEditorInput } from './providerSetupEditorInput.js';
-import { ILanguageModelsService, ILanguageModelProviderDescriptor } from '../../common/languageModels.js';
+import { ILanguageModelsProviderConnectionModel, ILanguageModelsProviderConnectionResult, ILanguageModelsService, ILanguageModelProviderDescriptor } from '../../common/languageModels.js';
 import { ILanguageModelsConfigurationService, ILanguageModelsProviderGroup } from '../../common/languageModelsConfiguration.js';
+import { classifyProviderProcessingLocationForProvider } from './providerProcessingLocation.js';
 
-interface TestConnectionResult {
-	success: boolean;
-	models: { name: string; id: string; tokens?: number }[];
-	error?: string;
-}
+type TestConnectionResult = ILanguageModelsProviderConnectionResult;
 
 interface ProviderConfigSchema {
 	properties?: Record<string, {
@@ -226,6 +219,7 @@ interface DefaultModelControls {
 	defaultCodingModel: HTMLSelectElement;
 	fastModel: HTMLSelectElement;
 	manualModels: HTMLInputElement;
+	isDefaultProfile: HTMLInputElement;
 }
 
 interface RecommendedModelDefaults {
@@ -234,11 +228,7 @@ interface RecommendedModelDefaults {
 	fastModel: string;
 }
 
-export class ProviderSetupEditor extends EditorPane {
-
-	static readonly ID: string = 'workbench.editor.providerSetup';
-
-	private readonly _editorDisposables = this._register(new DisposableStore());
+export class ProviderSetupView extends Disposable {
 	private _dimension: Dimension | undefined;
 	private _root: HTMLElement | undefined;
 
@@ -255,52 +245,124 @@ export class ProviderSetupEditor extends EditorPane {
 	private _searchQuery = '';
 	private _testResult: TestConnectionResult | undefined;
 	private _isTesting = false;
+	private _isVisible = true;
+	private _operationSequence = 0;
+	private _operationError: string | undefined;
+	private _controlIdPool = 0;
+	private _viewDisposables = this._register(new DisposableStore());
 	private _detailDisposables = this._register(new DisposableStore());
-	private _modelRefreshDisposable = this._register(new MutableDisposable());
 
 	constructor(
-		group: IEditorGroup,
-		@ITelemetryService telemetryService: ITelemetryService,
-		@IThemeService themeService: IThemeService,
-		@IStorageService storageService: IStorageService,
-		@IInstantiationService instantiationService: IInstantiationService,
-		@IContextKeyService contextKeyService: IContextKeyService,
 		@ILanguageModelsService private readonly _languageModelsService: ILanguageModelsService,
 		@ILanguageModelsConfigurationService private readonly _configService: ILanguageModelsConfigurationService,
+		@IDialogService private readonly _dialogService: IDialogService,
 	) {
-		super(ProviderSetupEditor.ID, group, telemetryService, themeService, storageService);
+		super();
 	}
 
-	protected override createEditor(parent: HTMLElement): void {
-		this._editorDisposables.clear();
-		this._root = DOM.append(parent, $('div.ps-editor'));
-	}
-
-	override async setInput(input: ProviderSetupEditorInput, options: IEditorOptions | undefined, context: IEditorOpenContext, token: CancellationToken): Promise<void> {
-		await super.setInput(input, options, context, token);
-		this._editorDisposables.clear();
+	render(parent: HTMLElement): void {
+		if (this._root) {
+			return;
+		}
+		this._root = DOM.append(parent, $('div.ps-editor.pointer-ui'));
 		this._buildLayout();
 		this._register(this._languageModelsService.onDidChangeLanguageModels(() => this._refreshSidebar()));
 		this._register(this._languageModelsService.onDidChangeLanguageModelVendors(() => this._refreshSidebar()));
+		this._register(this._configService.onDidChangeLanguageModelGroups(() => this._refreshSidebar()));
 		if (this._dimension) {
 			this.layout(this._dimension);
 		}
 	}
 
-	override layout(dimension: Dimension): void {
-		this._dimension = dimension;
+	setVisible(visible: boolean): void {
+		this._isVisible = visible;
+		if (this._root) {
+			this._root.style.display = visible ? '' : 'none';
+		}
+		if (!visible && this._isTesting) {
+			this._invalidateOperation();
+			this._testResult = undefined;
+			this._renderDetailView();
+		} else if (visible) {
+			this._renderSidebarContent();
+		}
 	}
 
-	override focus(): void {
-		super.focus();
+	layout(dimension: Dimension): void {
+		this._dimension = dimension;
+		this._root?.classList.toggle('ps-compact', dimension.width < 800);
+	}
+
+	focus(): void {
+		if (!this._isVisible) {
+			return;
+		}
 		const searchInput = this._root?.querySelector('.ps-search-input') as HTMLInputElement | undefined;
 		searchInput?.focus();
 	}
 
-	override clearInput(): void {
-		this._editorDisposables.clear();
+	clearState(): void {
+		this._invalidateOperation();
+		this._viewDisposables.clear();
 		this._detailDisposables.clear();
-		super.clearInput();
+	}
+
+	override dispose(): void {
+		this._invalidateOperation();
+		this._root?.remove();
+		this._root = undefined;
+		super.dispose();
+	}
+
+	private _beginOperation(testing: boolean): number | undefined {
+		if (this._root?.getAttribute('aria-busy') === 'true') {
+			return undefined;
+		}
+		const operation = ++this._operationSequence;
+		this._isTesting = testing;
+		this._operationError = undefined;
+		this._root?.setAttribute('aria-busy', 'true');
+		for (const button of this._detail?.querySelectorAll('button') ?? []) {
+			button.disabled = true;
+		}
+		this._renderSidebarContent();
+		return operation;
+	}
+
+	private _isCurrentOperation(operation: number): boolean {
+		return operation === this._operationSequence && !this._store.isDisposed;
+	}
+
+	private _finishOperation(operation: number, rerenderDetail = true): void {
+		if (!this._isCurrentOperation(operation)) {
+			return;
+		}
+		this._isTesting = false;
+		this._root?.setAttribute('aria-busy', 'false');
+		this._renderSidebarContent();
+		if (rerenderDetail) {
+			this._renderDetailView();
+		} else {
+			for (const button of this._detail?.querySelectorAll('button') ?? []) {
+				button.disabled = false;
+			}
+		}
+	}
+
+	private _invalidateOperation(): void {
+		this._operationSequence++;
+		this._isTesting = false;
+		this._root?.setAttribute('aria-busy', 'false');
+	}
+
+	private _setOperationError(message: string): void {
+		this._operationError = message;
+	}
+
+	private _renderOperationError(container: HTMLElement): void {
+		if (this._operationError) {
+			DOM.append(container, $('div.ps-operation-error', { role: 'alert' }, this._operationError));
+		}
 	}
 
 	private _buildLayout(): void {
@@ -325,11 +387,11 @@ export class ProviderSetupEditor extends EditorPane {
 		const searchIcon = DOM.append(searchContainer, $('span.codicon'));
 		searchIcon.className = ThemeIcon.asClassName(Codicon.search);
 
-		const input = DOM.append(searchContainer, $('input.ps-search-input')) as HTMLInputElement;
+		const input = DOM.append(searchContainer, $('input.pointer-input.ps-search-input')) as HTMLInputElement;
 		input.placeholder = localize('ps.search.placeholder', 'Search providers...');
 		input.value = this._searchQuery;
 
-		this._editorDisposables.add(DOM.addDisposableListener(input, DOM.EventType.INPUT, () => {
+		this._viewDisposables.add(DOM.addDisposableListener(input, DOM.EventType.INPUT, () => {
 			this._searchQuery = input.value.trim().toLowerCase();
 			this._refreshSidebar();
 		}));
@@ -342,9 +404,6 @@ export class ProviderSetupEditor extends EditorPane {
 
 	private _refreshSidebar(): void {
 		this._renderSidebarContent();
-		if (this._selectedEntry) {
-			this._renderDetailView();
-		}
 	}
 
 	private _getEntryStatus(entry: SidebarEntry): ProviderStatus {
@@ -496,6 +555,9 @@ export class ProviderSetupEditor extends EditorPane {
 
 	private _renderSidebarCard(container: HTMLElement, entry: SidebarEntry): void {
 		const card = DOM.append(container, $('div.ps-provider-card'));
+		card.tabIndex = 0;
+		card.setAttribute('role', 'button');
+		card.setAttribute('aria-label', entry.displayName);
 		const status = this._getEntryStatus(entry);
 		const isSelected = this._selectedEntry?.vendor === entry.vendor && this._selectedEntry?.displayName === entry.displayName;
 
@@ -522,14 +584,22 @@ export class ProviderSetupEditor extends EditorPane {
 		dot.classList.add(status);
 		statusEl.title = this._statusLabel(status);
 
-		this._editorDisposables.add(DOM.addDisposableListener(card, DOM.EventType.CLICK, () => {
+		const selectEntry = () => {
+			this._invalidateOperation();
 			this._selectedEntry = entry;
 			this._editingGroup = entry.group;
 			this._clearDraftProviderState();
 			this._testResult = undefined;
-			this._isTesting = false;
+			this._operationError = undefined;
 			this._renderSidebarContent();
 			this._renderDetailView();
+		};
+		this._viewDisposables.add(DOM.addDisposableListener(card, DOM.EventType.CLICK, selectEntry));
+		this._viewDisposables.add(DOM.addDisposableListener(card, DOM.EventType.KEY_DOWN, event => {
+			if (event.key === 'Enter' || event.key === ' ') {
+				event.preventDefault();
+				selectEntry();
+			}
 		}));
 	}
 
@@ -554,10 +624,10 @@ export class ProviderSetupEditor extends EditorPane {
 			localize('ps.empty.text', 'Select a provider on the left or add a custom OpenAI-compatible endpoint.')));
 
 		const actions = DOM.append(empty, $('div.ps-empty-state-actions'));
-		const addBtn = DOM.append(actions, $('button.ps-btn.ps-btn-primary'));
+		const addBtn = DOM.append(actions, $('button.pointer-button.pointer-button-primary'));
 		DOM.append(addBtn, $('span.codicon.codicon-plus'));
 		DOM.append(addBtn, $('span', undefined, localize('ps.empty.addProvider', 'Add Custom Provider')));
-		this._editorDisposables.add(DOM.addDisposableListener(addBtn, DOM.EventType.CLICK, () => {
+		this._viewDisposables.add(DOM.addDisposableListener(addBtn, DOM.EventType.CLICK, () => {
 			const custom = PROVIDER_CATALOG.find(v => v.vendor === 'customoai');
 			if (custom) {
 				this._selectedEntry = { type: 'catalog', catalog: custom, vendor: custom.vendor, displayName: `+ ${custom.displayName}`, icon: custom.icon, status: 'inactive' };
@@ -622,14 +692,16 @@ export class ProviderSetupEditor extends EditorPane {
 				inputs.push({ key, input, secret: isSecret, required: !!configSchema.required?.includes(key) });
 			}
 		}
+		this._renderProcessingLocation(form, catalog.vendor, inputs);
 
-		this._renderTestConnectionSection(form, inputs, registeredVendor, nameInput);
-		this._renderResolvedModelsSection(form, catalog.vendor, undefined);
 		const defaults = this._renderDefaultModelsSection(form, catalog.vendor, undefined, undefined);
+		this._renderResolvedModelsSection(form, catalog.vendor, undefined, () => this._refreshProvider(inputs, registeredVendor, nameInput, defaults));
+		this._renderTestConnectionSection(form, inputs, registeredVendor, nameInput, defaults);
 
 		this._detailFooter = DOM.append(this._detail, $('div.ps-detail-footer'));
+		this._renderOperationError(this._detailFooter);
 		const right = DOM.append(this._detailFooter, $('div.ps-detail-footer-right'));
-		const cancelBtn = DOM.append(right, $('button.ps-btn.ps-btn-secondary', undefined,
+		const cancelBtn = DOM.append(right, $('button.pointer-button.pointer-button-secondary', undefined,
 			localize('ps.action.cancel', 'Cancel')));
 		this._detailDisposables.add(DOM.addDisposableListener(cancelBtn, DOM.EventType.CLICK, () => {
 			this._clearDraftProviderState();
@@ -639,13 +711,15 @@ export class ProviderSetupEditor extends EditorPane {
 			this._renderSidebarContent();
 		}));
 
-		const addBtn = DOM.append(right, $('button.ps-btn.ps-btn-primary', undefined,
+		const addBtn = DOM.append(right, $('button.pointer-button.pointer-button-primary', undefined,
 			localize('ps.action.add', 'Add Provider')));
-		this._detailDisposables.add(DOM.addDisposableListener(addBtn, DOM.EventType.CLICK, () => {
-			this._saveProvider(nameInput.value, inputs, undefined, catalog.vendor, defaults);
+		this._detailDisposables.add(DOM.addDisposableListener(addBtn, DOM.EventType.CLICK, async () => {
+			await this._saveProvider(nameInput.value, inputs, undefined, catalog.vendor, defaults, registeredVendor);
 		}));
 
-		requestAnimationFrame(() => nameInput.focus());
+		if (this._isVisible) {
+			requestAnimationFrame(() => this._isVisible && nameInput.focus());
+		}
 	}
 
 	private _renderConfigureView(): void {
@@ -710,39 +784,41 @@ export class ProviderSetupEditor extends EditorPane {
 				inputs.push({ key, input, secret: isSecret, required: !!configSchema.required?.includes(key) });
 			}
 		}
+		this._renderProcessingLocation(form, vendorId, inputs);
 
-		this._renderTestConnectionSection(form, inputs, registeredVendor, nameInput);
-		this._renderResolvedModelsSection(form, vendorId, isEdit ? group?.name : undefined);
 		const defaults = this._renderDefaultModelsSection(form, vendorId, isEdit ? group?.name : undefined, group);
+		this._renderResolvedModelsSection(form, vendorId, isEdit ? group?.name : undefined, () => this._refreshProvider(inputs, registeredVendor, nameInput, defaults));
+		this._renderTestConnectionSection(form, inputs, registeredVendor, nameInput, defaults);
 
 		this._detailFooter = DOM.append(this._detail, $('div.ps-detail-footer'));
+		this._renderOperationError(this._detailFooter);
 		const left = DOM.append(this._detailFooter, $('div.ps-detail-footer-left'));
 
 		if (group && group.vendor !== 'copilot') {
 			if (catalog?.isMultiInstance) {
-				const dupBtn = DOM.append(left, $('button.ps-btn.ps-btn-ghost'));
+				const dupBtn = DOM.append(left, $('button.pointer-button.pointer-button-secondary'));
 				DOM.append(dupBtn, $('span.codicon.codicon-copy'));
 				DOM.append(dupBtn, $('span', undefined, localize('ps.action.duplicate', 'Duplicate')));
-				this._detailDisposables.add(DOM.addDisposableListener(dupBtn, DOM.EventType.CLICK, () => {
-					this._duplicateGroup(group!);
+				this._detailDisposables.add(DOM.addDisposableListener(dupBtn, DOM.EventType.CLICK, async () => {
+					await this._duplicateGroup(group!);
 				}));
 			}
 
-			const removeBtn = DOM.append(left, $('button.ps-btn.ps-btn-danger'));
+			const removeBtn = DOM.append(left, $('button.pointer-button.pointer-button-danger'));
 			DOM.append(removeBtn, $('span', undefined, localize('ps.action.remove', 'Remove')));
-			this._detailDisposables.add(DOM.addDisposableListener(removeBtn, DOM.EventType.CLICK, () => {
-				this._removeGroup(group!);
+			this._detailDisposables.add(DOM.addDisposableListener(removeBtn, DOM.EventType.CLICK, async () => {
+				await this._removeGroup(group!);
 			}));
 		}
 
-		const jsonBtn = DOM.append(left, $('button.ps-btn.ps-btn-ghost'));
+		const jsonBtn = DOM.append(left, $('button.pointer-button.pointer-button-secondary'));
 		DOM.append(jsonBtn, $('span', undefined, localize('ps.action.json', 'Edit JSON')));
 		this._detailDisposables.add(DOM.addDisposableListener(jsonBtn, DOM.EventType.CLICK, () => {
 			this._configService.configureLanguageModels();
 		}));
 
 		const right = DOM.append(this._detailFooter, $('div.ps-detail-footer-right'));
-		const cancelBtn = DOM.append(right, $('button.ps-btn.ps-btn-secondary', undefined,
+		const cancelBtn = DOM.append(right, $('button.pointer-button.pointer-button-secondary', undefined,
 			localize('ps.action.close', 'Close')));
 		this._detailDisposables.add(DOM.addDisposableListener(cancelBtn, DOM.EventType.CLICK, () => {
 			this._clearDraftProviderState();
@@ -752,16 +828,37 @@ export class ProviderSetupEditor extends EditorPane {
 			this._renderSidebarContent();
 		}));
 
-		const saveBtn = DOM.append(right, $('button.ps-btn.ps-btn-primary', undefined,
+		const saveBtn = DOM.append(right, $('button.pointer-button.pointer-button-primary', undefined,
 			isEdit ? localize('ps.action.save', 'Save Changes') : localize('ps.action.connect', 'Connect')));
-		this._detailDisposables.add(DOM.addDisposableListener(saveBtn, DOM.EventType.CLICK, () => {
-			this._saveProvider(nameInput.value, inputs, isEdit ? group : undefined, vendorId, defaults);
+		this._detailDisposables.add(DOM.addDisposableListener(saveBtn, DOM.EventType.CLICK, async () => {
+			await this._saveProvider(nameInput.value, inputs, isEdit ? group : undefined, vendorId, defaults, registeredVendor);
 		}));
 
-		requestAnimationFrame(() => nameInput.focus());
+		if (this._isVisible) {
+			requestAnimationFrame(() => this._isVisible && nameInput.focus());
+		}
 	}
 
-	private _renderResolvedModelsSection(form: HTMLElement, vendorId: string, groupName: string | undefined): void {
+	private _renderProcessingLocation(form: HTMLElement, vendorId: string, inputs: readonly ProviderFormInput[]): void {
+		const endpointInput = inputs.find(input => input.key === 'baseUrl' || input.key === 'url' || input.key === 'endpoint')?.input;
+		const location = DOM.append(form, $('div.ps-processing-location'));
+		const update = () => {
+			const value = endpointInput?.value;
+			const classification = classifyProviderProcessingLocationForProvider(value, vendorId, !!endpointInput);
+			location.className = `ps-processing-location ${classification}`;
+			location.textContent = classification === 'local'
+				? localize('ps.processing.local', 'Local processing')
+				: classification === 'remote'
+					? localize('ps.processing.remote', 'Remote processing')
+					: localize('ps.processing.unknown', 'Processing location unknown');
+		};
+		update();
+		if (endpointInput) {
+			this._detailDisposables.add(DOM.addDisposableListener(endpointInput, DOM.EventType.INPUT, update));
+		}
+	}
+
+	private _renderResolvedModelsSection(form: HTMLElement, vendorId: string, groupName: string | undefined, refresh: () => Promise<void>): void {
 		const group = groupName ? this._configService.getLanguageModelsProviderGroups().find(g => g.vendor === vendorId && g.name === groupName) : undefined;
 		const modelIds = this._languageModelsService.getLanguageModelIds().filter(id => {
 			if (!id.startsWith(`${vendorId}/`)) { return false; }
@@ -772,30 +869,19 @@ export class ProviderSetupEditor extends EditorPane {
 		});
 
 		const cachedModels = this._getCachedModelIds(group);
-		const testedModelIds = !group && this._selectedEntry?.vendor === vendorId && this._testResult?.success
+		const testedModelIds = this._selectedEntry?.vendor === vendorId && this._testResult?.success
 			? this._testResult.models.map(model => `${vendorId}/${model.id}`)
 			: [];
-		const visibleModelIds = modelIds.length > 0 ? modelIds : cachedModels.length > 0 ? cachedModels : testedModelIds;
+		const visibleModelIds = testedModelIds.length > 0 ? testedModelIds : modelIds.length > 0 ? modelIds : cachedModels;
 
 		const section = DOM.append(form, $('div.ps-resolved-models-section'));
 		const header = DOM.append(section, $('div.ps-model-section-header'));
 		DOM.append(header, $('span', undefined, localize('ps.models.available', 'Available Models ({0})', visibleModelIds.length)));
 
-		const refreshBtn = DOM.append(header, $('button.ps-btn.ps-btn-ghost')) as HTMLButtonElement;
-		refreshBtn.style.fontSize = '11px';
-		refreshBtn.style.padding = '2px 8px';
+		const refreshBtn = DOM.append(header, $('button.pointer-button.pointer-button-ghost.pointer-button-small')) as HTMLButtonElement;
 		DOM.append(refreshBtn, $('span.codicon.codicon-refresh'));
 		DOM.append(refreshBtn, $('span', undefined, localize('ps.models.refresh', 'Refresh')));
-		this._detailDisposables.add(DOM.addDisposableListener(refreshBtn, DOM.EventType.CLICK, async () => {
-			refreshBtn.disabled = true;
-			if (group) {
-				await this._refreshAndPersistModels(group, this._groupToConfig(group));
-			} else {
-				await this._languageModelsService.selectLanguageModels({ vendor: vendorId });
-			}
-			refreshBtn.disabled = false;
-			this._renderDetailView();
-		}));
+		this._detailDisposables.add(DOM.addDisposableListener(refreshBtn, DOM.EventType.CLICK, refresh));
 
 		const modelList = DOM.append(section, $('div.ps-resolved-models-list'));
 		if (visibleModelIds.length === 0) {
@@ -843,54 +929,77 @@ export class ProviderSetupEditor extends EditorPane {
 			if (!groupName && model?.detail) { return false; }
 			return true;
 		});
-		const testedModelIds = !group && this._selectedEntry?.vendor === vendorId && this._testResult?.success
+		const testedModelIds = this._selectedEntry?.vendor === vendorId && this._testResult?.success
 			? this._testResult.models.map(model => `${vendorId}/${model.id}`)
 			: [];
-		const optionModelIds = modelIds.length > 0 ? modelIds : this._getCachedModelIds(group).length > 0 ? this._getCachedModelIds(group) : testedModelIds;
+		const cachedModelIds = this._getCachedModelIds(group);
+		const optionModelIds = testedModelIds.length > 0 ? testedModelIds : modelIds.length > 0 ? modelIds : cachedModelIds;
 
 		const modelRow = DOM.append(section, $('div.ps-model-row'));
 
 		const fields = [
 			{ label: localize('ps.model.chat', 'Default chat model'), id: 'defaultChatModel' },
-			{ label: localize('ps.model.coding', 'Default coding model'), id: 'defaultCodingModel' },
-			{ label: localize('ps.model.fast', 'Fast model'), id: 'fastModel' },
+			{ label: localize('ps.model.coding', 'Default inline edit model'), id: 'defaultCodingModel' },
+			{ label: localize('ps.model.fast', 'Compatibility fallback model'), id: 'fastModel' },
 		];
 
 		const selects = new Map<string, HTMLSelectElement>();
 		const recommendedDefaults = this._recommendDefaultModels(vendorId, optionModelIds);
 		for (const field of fields) {
 			const fieldEl = DOM.append(modelRow, $('div.ps-model-field'));
-			DOM.append(fieldEl, $('div.ps-model-field-label', undefined, field.label));
-
-			const select = DOM.append(fieldEl, $('select.ps-model-select')) as HTMLSelectElement;
+			const select = DOM.append(fieldEl, $('select.pointer-select.ps-model-select')) as HTMLSelectElement;
+			const controlId = this._nextControlId(field.id);
+			select.id = controlId;
+			const label = DOM.append(fieldEl, $('label.ps-model-field-label', undefined, field.label)) as HTMLLabelElement;
+			label.htmlFor = controlId;
+			fieldEl.insertBefore(label, select);
 			DOM.append(select, $('option', { value: '' }, localize('ps.model.select', 'Select a model...')));
 			for (const modelId of optionModelIds) {
 				const model = this._languageModelsService.lookupLanguageModel(modelId);
 				const modelName = model?.name ?? modelId.replace(`${vendorId}/`, '');
 				DOM.append(select, $('option', { value: modelId }, modelName));
 			}
-			const existingValue = String((group as Record<string, unknown> | undefined)?.[field.id] ?? '');
+			const existingValue = this._getDraftProviderValue(field.id, String((group as Record<string, unknown> | undefined)?.[field.id] ?? ''));
 			const qualifiedExistingValue = existingValue && !existingValue.startsWith(`${vendorId}/`) ? `${vendorId}/${existingValue}` : existingValue;
-			select.value = qualifiedExistingValue || recommendedDefaults[field.id as keyof RecommendedModelDefaults] || '';
+			select.value = optionModelIds.includes(qualifiedExistingValue)
+				? qualifiedExistingValue
+				: recommendedDefaults[field.id as keyof RecommendedModelDefaults] || '';
 			selects.set(field.id, select);
 		}
 
 		const manualDiv = DOM.append(modelRow, $('div.ps-model-manual'));
-		DOM.append(manualDiv, $('div.ps-model-field-label', undefined, localize('ps.model.manual', 'Or enter model ID manually')));
-		const manualInput = DOM.append(manualDiv, $('input.ps-model-manual-input')) as HTMLInputElement;
+		const manualInput = DOM.append(manualDiv, $('input.pointer-input.ps-model-manual-input')) as HTMLInputElement;
+		const manualControlId = this._nextControlId('manualModels');
+		manualInput.id = manualControlId;
+		const manualLabel = DOM.append(manualDiv, $('label.ps-model-field-label', undefined, localize('ps.model.manual', 'Or enter model ID manually'))) as HTMLLabelElement;
+		manualLabel.htmlFor = manualControlId;
+		manualDiv.insertBefore(manualLabel, manualInput);
 		manualInput.placeholder = 'e.g. gpt-4.1, claude-sonnet-4, qwen/qwen3-coder';
-		const manualModels = (group as Record<string, unknown> | undefined)?.manualModels;
+		const manualModels = this._draftProviderConfig?.manualModels ?? (group as Record<string, unknown> | undefined)?.manualModels;
 		if (Array.isArray(manualModels)) {
 			manualInput.value = manualModels.filter((model): model is string => typeof model === 'string').join(', ');
 		}
 		DOM.append(manualDiv, $('div.ps-model-manual-hint', undefined,
 			localize('ps.model.manual.hint', 'Enter a model ID from the provider')));
 
+		const defaultProfileRow = DOM.append(section, $('div.ps-default-profile'));
+		const defaultProfile = DOM.append(defaultProfileRow, $('input', { type: 'checkbox' })) as HTMLInputElement;
+		defaultProfile.type = 'checkbox';
+		defaultProfile.id = this._nextControlId('isDefaultProfile');
+		const defaultProfileLabel = DOM.append(defaultProfileRow, $('label', undefined,
+			localize('ps.model.defaultProfile', 'Use this profile as the global Chat and Edit default'))) as HTMLLabelElement;
+		defaultProfileLabel.htmlFor = defaultProfile.id;
+		const draftDefaultProfile = this._draftProviderConfig?.isDefaultProfile;
+		defaultProfile.checked = typeof draftDefaultProfile === 'boolean'
+			? draftDefaultProfile
+			: group?.isDefaultProfile === true;
+
 		return {
 			defaultChatModel: selects.get('defaultChatModel')!,
 			defaultCodingModel: selects.get('defaultCodingModel')!,
 			fastModel: selects.get('fastModel')!,
-			manualModels: manualInput
+			manualModels: manualInput,
+			isDefaultProfile: defaultProfile
 		};
 	}
 
@@ -959,23 +1068,31 @@ export class ProviderSetupEditor extends EditorPane {
 		return needles.some(needle => value.includes(needle));
 	}
 
-	private _renderTestConnectionSection(form: HTMLElement, inputs: ProviderFormInput[], vendor: ILanguageModelProviderDescriptor | undefined, nameInput: HTMLInputElement): void {
+	private _renderTestConnectionSection(
+		form: HTMLElement,
+		inputs: ProviderFormInput[],
+		vendor: ILanguageModelProviderDescriptor | undefined,
+		nameInput: HTMLInputElement,
+		defaults: DefaultModelControls
+	): void {
 		const section = DOM.append(form, $('div.ps-test-section'));
 
 		const header = DOM.append(section, $('div.ps-test-header'));
 		DOM.append(header, $('span', undefined, localize('ps.test.title', 'Verify Connection')));
 
-		const testBtn = DOM.append(header, $('button.ps-btn.ps-btn-secondary')) as HTMLButtonElement;
-		testBtn.style.fontSize = '11px';
-		testBtn.style.padding = '3px 10px';
+		const testBtn = DOM.append(header, $('button.pointer-button.pointer-button-secondary.pointer-button-small')) as HTMLButtonElement;
 		DOM.append(testBtn, $('span', undefined, localize('ps.test.button', 'Test Connection')));
 		const testIcon = DOM.append(testBtn, $('span.codicon'));
 		testIcon.className = ThemeIcon.asClassName(Codicon.debugStart);
 
 		this._detailDisposables.add(DOM.addDisposableListener(testBtn, DOM.EventType.CLICK, async () => {
 			if (this._isTesting) { return; }
-			await this._runTestConnection(section, inputs, vendor, nameInput, testBtn);
+			await this._runTestConnection(section, inputs, vendor, nameInput, defaults);
 		}));
+
+		if (this._testResult) {
+			this._showTestResult(section, this._testResult);
+		}
 	}
 
 	private async _runTestConnection(
@@ -983,23 +1100,13 @@ export class ProviderSetupEditor extends EditorPane {
 		inputs: ProviderFormInput[],
 		vendor: ILanguageModelProviderDescriptor | undefined,
 		nameInput: HTMLInputElement,
-		testBtn: HTMLButtonElement
+		defaults: DefaultModelControls
 	): Promise<void> {
-		this._isTesting = true;
-		this._testResult = undefined;
-		this._renderSidebarContent();
-
 		const config = this._collectFormValues(inputs);
+		this._collectDefaultModelValues(config, defaults);
 		this._rememberDraftProviderState(nameInput.value, config);
 
-		if (!nameInput.value.trim()) {
-			this._showTestResult(section, {
-				success: false,
-				models: [],
-				error: localize('ps.error.nameRequired', 'Display name is required')
-			});
-			this._isTesting = false;
-			this._renderSidebarContent();
+		if (!this._validateProviderDraft(nameInput, inputs)) {
 			return;
 		}
 
@@ -1009,12 +1116,14 @@ export class ProviderSetupEditor extends EditorPane {
 				models: [],
 				error: localize('ps.test.vendorNotFound', 'Provider not registered. Install the corresponding extension first.')
 			});
-			this._isTesting = false;
-			this._renderSidebarContent();
 			return;
 		}
 
-		testBtn.disabled = true;
+		const operation = this._beginOperation(true);
+		if (operation === undefined) {
+			return;
+		}
+		this._testResult = undefined;
 		const existingResult = section.querySelector('.ps-test-result');
 		existingResult?.remove();
 		const existingLoading = section.querySelector('.ps-test-loading');
@@ -1026,68 +1135,37 @@ export class ProviderSetupEditor extends EditorPane {
 
 		try {
 			const result = await this._languageModelsService.testProviderConnection(vendor.vendor, config);
-			this._testResult = result;
-			loadingEl.remove();
-
-			if (result.success) {
-				this._showTestResult(section, {
-					success: true,
-					models: result.models,
-					error: result.models.length === 0
-						? localize('ps.test.noModels', 'Connection successful, but no models were returned')
-						: undefined
-				});
-				if (this._editingGroup && result.models.length > 0) {
-					await this._persistDiscoveredModels(this._editingGroup, result.models);
-				}
-				if (!this._editingGroup && this._selectedEntry?.type === 'catalog' && this._selectedEntry.catalog?.isMultiInstance) {
-					testBtn.disabled = false;
-					this._isTesting = false;
-					this._renderDetailView();
-					return;
-				}
-			} else {
-				this._showTestResult(section, result);
+			if (!this._isCurrentOperation(operation)) {
+				return;
 			}
+			this._testResult = result;
 		} catch (err) {
+			if (!this._isCurrentOperation(operation)) {
+				return;
+			}
 			const msg = err instanceof Error ? err.message : String(err);
 			this._testResult = { success: false, models: [], error: msg };
+		} finally {
 			loadingEl.remove();
-			this._showTestResult(section, this._testResult);
 		}
-
-		testBtn.disabled = false;
-		this._isTesting = false;
-		this._renderSidebarContent();
-
-		if (this._testResult?.success && this._testResult.models.length > 0 && this._detailBody) {
-			const existingModelSection = this._detailBody.querySelector('.ps-test-models-found');
-			existingModelSection?.remove();
-			const modelSection = DOM.append(this._detailBody, $('div.ps-test-models-found'));
-			const modelList = DOM.append(modelSection, $('div.ps-resolved-models-list'));
-			for (const model of this._testResult.models.slice(0, 20)) {
-				const chip = DOM.append(modelList, $('div.ps-model-chip'));
-				DOM.append(chip, $('span.ps-model-chip-name', undefined, model.name));
-				if (model.tokens) {
-					DOM.append(chip, $('span.ps-model-chip-meta', undefined,
-						model.tokens >= 1000000 ? `${(model.tokens / 1000000).toFixed(1)}M tokens` : `${Math.round(model.tokens / 1000)}K tokens`));
-				}
-			}
+		if (this._testResult && this._testResult.models.length === 0) {
+			this._showTestResult(section, this._testResult);
+			this._finishOperation(operation, false);
+		} else {
+			this._finishOperation(operation);
 		}
 	}
 
-	private async _persistDiscoveredModels(group: ILanguageModelsProviderGroup, models: { name: string; id: string; tokens?: number }[]): Promise<void> {
-		const config = this._groupToConfig(group);
-		config.cachedModels = models.map(model => ({
-			id: model.id,
-			name: model.name,
-			maxInputTokens: model.tokens || 100000,
-			maxOutputTokens: 8192,
-			toolCalling: true,
-			vision: false
-		}));
-		this._applyRecommendedDefaultModelValues(config, group.vendor);
-		await this._languageModelsService.updateLanguageModelsProviderGroup(group, group.name, group.vendor, config);
+	private async _refreshProvider(
+		inputs: ProviderFormInput[],
+		vendor: ILanguageModelProviderDescriptor | undefined,
+		nameInput: HTMLInputElement,
+		defaults: DefaultModelControls
+	): Promise<void> {
+		const section = this._detail?.querySelector('.ps-test-section') as HTMLElement | null;
+		if (section) {
+			await this._runTestConnection(section, inputs, vendor, nameInput, defaults);
+		}
 	}
 
 	private _showTestResult(container: HTMLElement, result: TestConnectionResult): void {
@@ -1103,6 +1181,10 @@ export class ProviderSetupEditor extends EditorPane {
 		if (result.error) {
 			const errorText = DOM.append(el, $('div.ps-test-error-text'));
 			DOM.append(errorText, $('span', undefined, this._classifyError(result.error)));
+		} else if (result.success && result.models.length === 0) {
+			el.classList.add('ps-test-warning');
+			DOM.append(el, $('span', undefined,
+				localize('ps.test.noModels', 'Connection works, but no models were returned. You can enter a model ID manually.')));
 		} else if (result.models.length > 0) {
 			DOM.append(el, $('span', undefined,
 				localize('ps.test.success', 'Connection successful! Found {0} models:', result.models.length)));
@@ -1134,13 +1216,15 @@ export class ProviderSetupEditor extends EditorPane {
 
 	private _renderFormField(form: HTMLElement, label: string, value: string, hint: string, password: boolean, required: boolean): HTMLInputElement {
 		const group = DOM.append(form, $('div.ps-form-group'));
-		const labelEl = DOM.append(group, $('label.ps-form-label', undefined, label));
+		const labelEl = DOM.append(group, $('label.ps-form-label', undefined, label)) as HTMLLabelElement;
 		if (required) {
 			DOM.append(labelEl, $('span.ps-form-label-required', undefined, '*'));
 		}
 
 		const inputRow = DOM.append(group, $('div.ps-form-input-row'));
-		const input = DOM.append(inputRow, $('input.ps-form-input')) as HTMLInputElement;
+		const input = DOM.append(inputRow, $('input.pointer-input')) as HTMLInputElement;
+		input.id = this._nextControlId('field');
+		labelEl.htmlFor = input.id;
 		input.type = password ? 'password' : 'text';
 		input.value = value;
 
@@ -1153,7 +1237,7 @@ export class ProviderSetupEditor extends EditorPane {
 			if (hasStoredSecret) {
 				input.dataset.hasSecret = 'true';
 				input.title = localize('ps.form.secret.stored', 'Secret is stored securely. Leave empty to keep it, type to replace it.');
-				const removeBtn = DOM.append(inputRow, $('button.ps-btn.ps-btn-ghost.ps-btn-icon.ps-secret-remove', { type: 'button' })) as HTMLButtonElement;
+				const removeBtn = DOM.append(inputRow, $('button.pointer-button.pointer-button-ghost.pointer-button-icon.ps-secret-remove', { type: 'button' })) as HTMLButtonElement;
 				removeBtn.title = localize('ps.form.secret.remove', 'Remove stored secret');
 				DOM.append(removeBtn, $('span.codicon.codicon-trash'));
 				this._detailDisposables.add(DOM.addDisposableListener(removeBtn, DOM.EventType.CLICK, () => {
@@ -1171,7 +1255,12 @@ export class ProviderSetupEditor extends EditorPane {
 		}
 
 		this._detailDisposables.add(DOM.addDisposableListener(input, DOM.EventType.INPUT, () => {
+			if (input.value) {
+				delete input.dataset.secretRemoved;
+				delete input.dataset.hasSecret;
+			}
 			input.classList.remove('ps-form-input-error');
+			input.removeAttribute('aria-invalid');
 			const errEl = input.parentElement?.querySelector('.ps-form-error') as HTMLElement | undefined;
 			errEl?.remove();
 		}));
@@ -1181,12 +1270,14 @@ export class ProviderSetupEditor extends EditorPane {
 
 	private _renderSelectField(form: HTMLElement, label: string, value: string, hint: string, options: string[], required: boolean): HTMLSelectElement {
 		const group = DOM.append(form, $('div.ps-form-group'));
-		const labelEl = DOM.append(group, $('label.ps-form-label', undefined, label));
+		const labelEl = DOM.append(group, $('label.ps-form-label', undefined, label)) as HTMLLabelElement;
 		if (required) {
 			DOM.append(labelEl, $('span.ps-form-label-required', undefined, '*'));
 		}
 
-		const select = DOM.append(group, $('select.ps-form-input.ps-form-select')) as HTMLSelectElement;
+		const select = DOM.append(group, $('select.pointer-select')) as HTMLSelectElement;
+		select.id = this._nextControlId('select');
+		labelEl.htmlFor = select.id;
 		for (const option of options) {
 			DOM.append(select, $('option', { value: option }, option === 'none' ? localize('ps.auth.none', 'None') : option === 'header' ? localize('ps.auth.header', 'Header') : localize('ps.auth.bearer', 'Bearer')));
 		}
@@ -1197,10 +1288,45 @@ export class ProviderSetupEditor extends EditorPane {
 		return select;
 	}
 
+	private _nextControlId(name: string): string {
+		return `ps-provider-${name}-${++this._controlIdPool}`;
+	}
+
+	private _validateProviderDraft(nameInput: HTMLInputElement, inputs: readonly ProviderFormInput[]): boolean {
+		let valid = true;
+		if (!nameInput.value.trim()) {
+			this._markInvalid(nameInput, localize('ps.error.nameRequired', 'Display name is required'));
+			valid = false;
+		}
+		for (const input of inputs) {
+			if (!input.required) {
+				continue;
+			}
+			const hasStoredSecret = input.secret
+				&& input.input instanceof HTMLInputElement
+				&& input.input.dataset.hasSecret === 'true'
+				&& input.input.dataset.secretRemoved !== 'true';
+			if (!input.input.value.trim() && !hasStoredSecret) {
+				this._markInvalid(input.input, localize('ps.error.required', 'This field is required'));
+				valid = false;
+			}
+		}
+		return valid;
+	}
+
+	private _markInvalid(input: HTMLInputElement | HTMLSelectElement, message: string): void {
+		input.classList.add('ps-form-input-error');
+		input.setAttribute('aria-invalid', 'true');
+		if (!input.parentElement?.querySelector('.ps-form-error')) {
+			DOM.append(input.parentElement ?? input, $('div.ps-form-error', undefined, message));
+		}
+	}
+
 	private _collectFormValues(inputs: ProviderFormInput[]): Record<string, unknown> {
 		const config: Record<string, unknown> = {};
 		for (const { key, input, secret } of inputs) {
 			if (secret && input instanceof HTMLInputElement && input.dataset.secretRemoved === 'true') {
+				config[key] = null;
 				continue;
 			}
 			if (secret && input instanceof HTMLInputElement && input.dataset.hasSecret === 'true' && !input.value) {
@@ -1265,63 +1391,104 @@ export class ProviderSetupEditor extends EditorPane {
 		inputs: ProviderFormInput[],
 		existing: ILanguageModelsProviderGroup | undefined,
 		vendorId: string,
-		defaults: DefaultModelControls
+		defaults: DefaultModelControls,
+		vendor: ILanguageModelProviderDescriptor | undefined
 	): Promise<void> {
-		if (!name.trim()) { return; }
-
+		const trimmedName = name.trim();
 		const config = this._collectFormValues(inputs);
 		this._collectDefaultModelValues(config, defaults);
-		if (!existing && this._testResult?.success && this._testResult.models.length > 0 && !Array.isArray(config.cachedModels)) {
-			config.cachedModels = this._testResult.models.map(model => ({
-				id: model.id,
-				name: model.name,
-				maxInputTokens: model.tokens || 100000,
-				maxOutputTokens: 8192,
-				toolCalling: true,
-				vision: false
-			}));
+		this._rememberDraftProviderState(name, config);
+		const nameInput = this._detail?.querySelector<HTMLInputElement>('.ps-form input.pointer-input');
+		if (!nameInput || !this._validateProviderDraft(nameInput, inputs)) {
+			return;
 		}
-		if (existing && !(config.cachedModels instanceof Array)) {
+		if (this._configService.getLanguageModelsProviderGroups().some(group =>
+			group.vendor === vendorId
+			&& group.name === trimmedName
+			&& !(existing && group.vendor === existing.vendor && group.name === existing.name))) {
+			this._setOperationError(localize('ps.error.duplicateProvider', 'A provider named "{0}" already exists.', trimmedName));
+			this._renderDetailView();
+			return;
+		}
+		if (!vendor) {
+			this._setOperationError(localize('ps.test.vendorNotFound', 'Provider not registered. Install the corresponding extension first.'));
+			this._renderDetailView();
+			return;
+		}
+
+		if (existing) {
 			const cachedModels = (existing as Record<string, unknown>).cachedModels;
 			if (Array.isArray(cachedModels)) {
 				config.cachedModels = cachedModels;
 			}
 		}
-		this._applyRecommendedDefaultModelValues(config, vendorId);
 
+		const operation = this._beginOperation(false);
+		if (operation === undefined) {
+			return;
+		}
 		try {
-			if (existing && existing.vendor !== 'copilot') {
-				await this._languageModelsService.updateLanguageModelsProviderGroup(existing, name.trim(), vendorId, config);
+			const preflight = await this._languageModelsService.testProviderConnection(vendorId, config);
+			if (!this._isCurrentOperation(operation)) {
+				return;
+			}
+			this._testResult = preflight;
+			if (preflight.success && preflight.models.length > 0) {
+				config.cachedModels = preflight.models.map(model => this._toCachedModel(model));
+			}
+			this._applyRecommendedDefaultModelValues(config, vendorId);
+
+			if (existing) {
+				await this._languageModelsService.updateLanguageModelsProviderGroup(existing, trimmedName, vendorId, config);
 			} else {
-				await this._languageModelsService.addLanguageModelsProviderGroup(name.trim(), vendorId, config);
+				await this._languageModelsService.addLanguageModelsProviderGroup(trimmedName, vendorId, config);
+			}
+			if (!this._isCurrentOperation(operation)) {
+				return;
+			}
+
+			const savedGroup = this._configService.getLanguageModelsProviderGroups().find(group => group.vendor === vendorId && group.name === trimmedName);
+			if (savedGroup) {
+				const catalog = PROVIDER_CATALOG.find(provider => provider.vendor === vendorId);
+				this._editingGroup = savedGroup;
+				this._selectedEntry = {
+					type: 'group',
+					group: savedGroup,
+					vendor: vendorId,
+					displayName: trimmedName,
+					icon: catalog?.icon ?? PROVIDER_ICONS[vendorId] ?? Codicon.server.id,
+					status: 'inactive'
+				};
 			}
 			this._clearDraftProviderState();
-
-			const savedGroup = this._configService.getLanguageModelsProviderGroups().find(g => g.vendor === vendorId && g.name === name.trim());
-			if (savedGroup) {
-				await this._refreshAndPersistModels(savedGroup, config);
+			if (!preflight.success) {
+				this._setOperationError(localize('ps.save.preflightFailed', 'Provider saved, but the connection test failed: {0}', this._connectionErrorMessage(preflight)));
+			} else if (preflight.models.length === 0) {
+				this._setOperationError(localize('ps.save.noModels', 'Provider saved, but no models were discovered. Add a model ID manually if the endpoint does not expose a models list.'));
 			}
-
-			this._modelRefreshDisposable.value = this._languageModelsService.onDidChangeLanguageModels(() => {
-				this._modelRefreshDisposable.clear();
-				this._editingGroup = this._configService.getLanguageModelsProviderGroups().find(g => g.vendor === vendorId && g.name === name.trim());
-				this._renderSidebarContent();
-				this._renderDetailView();
-			});
-
-			await this._languageModelsService.selectLanguageModels({});
-
-			setTimeout(() => {
-				if (!this._store.isDisposed) {
-					this._editingGroup = this._configService.getLanguageModelsProviderGroups().find(g => g.vendor === vendorId && g.name === name.trim());
-					this._renderSidebarContent();
-					this._renderDetailView();
-				}
-			}, 2000);
-		} catch {
-			this._renderSidebarContent();
-			this._renderDetailView();
+		} catch (error) {
+			if (this._isCurrentOperation(operation)) {
+				this._setOperationError(error instanceof Error ? error.message : String(error));
+			}
+		} finally {
+			this._finishOperation(operation);
 		}
+	}
+
+	private _toCachedModel(model: ILanguageModelsProviderConnectionModel): Record<string, unknown> {
+		const cached: Record<string, unknown> = { id: model.id, name: model.name };
+		if (model.maxInputTokens !== undefined) { cached.maxInputTokens = model.maxInputTokens; }
+		else if (model.tokens !== undefined) { cached.maxInputTokens = model.tokens; }
+		if (model.maxOutputTokens !== undefined) { cached.maxOutputTokens = model.maxOutputTokens; }
+		if (model.capabilities?.vision !== undefined) { cached.vision = model.capabilities.vision; }
+		if (model.capabilities?.toolCalling !== undefined) { cached.toolCalling = model.capabilities.toolCalling; }
+		if (model.capabilities?.agentMode !== undefined) { cached.agentMode = model.capabilities.agentMode; }
+		if (model.capabilities?.editTools !== undefined) { cached.editTools = model.capabilities.editTools; }
+		return cached;
+	}
+
+	private _connectionErrorMessage(result: ILanguageModelsProviderConnectionResult): string {
+		return result.error ? this._classifyError(result.error) : result.errorCode ?? localize('ps.error.unknown', 'Unknown connection error');
 	}
 
 	private _collectDefaultModelValues(config: Record<string, unknown>, defaults: DefaultModelControls): void {
@@ -1330,6 +1497,7 @@ export class ProviderSetupEditor extends EditorPane {
 		config.fastModel = defaults.fastModel.value.replace(/^[^/]+\//, '');
 		const manualModels = defaults.manualModels.value.split(',').map(model => model.trim()).filter(model => !!model);
 		config.manualModels = manualModels;
+		config.isDefaultProfile = defaults.isDefaultProfile.checked;
 	}
 
 	private _applyRecommendedDefaultModelValues(config: Record<string, unknown>, vendorId: string): void {
@@ -1362,39 +1530,6 @@ export class ProviderSetupEditor extends EditorPane {
 		}
 	}
 
-	private async _refreshAndPersistModels(group: ILanguageModelsProviderGroup, config: Record<string, unknown>): Promise<void> {
-		const result = await this._languageModelsService.testProviderConnection(group.vendor, config);
-		if (!result.success) {
-			if (result.error) {
-				this._testResult = result;
-			}
-			return;
-		}
-		const persistedConfig = this._groupToConfig(group);
-		persistedConfig.cachedModels = result.models.map(model => ({
-			id: model.id,
-			name: model.name,
-			maxInputTokens: model.tokens || 100000,
-			maxOutputTokens: 8192,
-			toolCalling: true,
-			vision: false
-		}));
-		this._applyRecommendedDefaultModelValues(persistedConfig, group.vendor);
-		await this._languageModelsService.updateLanguageModelsProviderGroup(group, group.name, group.vendor, persistedConfig);
-		await this._languageModelsService.selectLanguageModels({ vendor: group.vendor });
-	}
-
-	private _groupToConfig(group: ILanguageModelsProviderGroup): Record<string, unknown> {
-		const config: Record<string, unknown> = {};
-		for (const [key, value] of Object.entries(group)) {
-			if (key === 'name' || key === 'vendor' || key === 'range' || key === 'settings') {
-				continue;
-			}
-			config[key] = value;
-		}
-		return config;
-	}
-
 	private async _duplicateGroup(group: ILanguageModelsProviderGroup): Promise<void> {
 		const groups = this._configService.getLanguageModelsProviderGroups();
 		let newName = `${group.name} (Copy)`;
@@ -1410,42 +1545,85 @@ export class ProviderSetupEditor extends EditorPane {
 			config[key] = value;
 		}
 
+		const operation = this._beginOperation(false);
+		if (operation === undefined) {
+			return;
+		}
 		try {
 			await this._languageModelsService.addLanguageModelsProviderGroup(newName, group.vendor, config);
-			await this._languageModelsService.selectLanguageModels({});
-
-			setTimeout(() => {
-				if (!this._store.isDisposed) {
-					const newGroup = this._configService.getLanguageModelsProviderGroups().find(g => g.vendor === group.vendor && g.name === newName);
-					if (newGroup) {
-						this._editingGroup = newGroup;
-						this._selectedEntry = {
-							type: 'group',
-							group: newGroup,
-							vendor: group.vendor,
-							displayName: newName,
-							icon: PROVIDER_ICONS[group.vendor] ?? Codicon.server.id,
-							status: 'inactive'
-						};
-					}
-					this._renderSidebarContent();
-					this._renderDetailView();
-				}
-			}, 2000);
-		} catch {
-			// ignore
+		} catch (error) {
+			if (this._isCurrentOperation(operation)) {
+				this._setOperationError(error instanceof Error ? error.message : String(error));
+			}
+		} finally {
+			this._finishOperation(operation);
 		}
 	}
 
 	private async _removeGroup(group: ILanguageModelsProviderGroup): Promise<void> {
+		const confirmation = await this._dialogService.confirm({
+			type: Severity.Warning,
+			message: localize('ps.remove.confirm', 'Remove provider "{0}"?', group.name),
+			detail: localize('ps.remove.detail', 'This removes the provider profile and its stored credentials from Pointer.'),
+			primaryButton: localize('ps.remove.button', 'Remove')
+		});
+		if (!confirmation.confirmed) {
+			return;
+		}
+		const operation = this._beginOperation(false);
+		if (operation === undefined) {
+			return;
+		}
 		try {
-			await this._configService.removeLanguageModelsProviderGroup(group);
+			await this._languageModelsService.removeLanguageModelsProviderGroup(group.vendor, group.name);
+			if (!this._isCurrentOperation(operation)) {
+				return;
+			}
 			this._selectedEntry = undefined;
 			this._editingGroup = undefined;
-			this._renderSidebarContent();
-			this._showEmptyDetail();
-		} catch {
-			// ignore
+			this._clearDraftProviderState();
+		} catch (error) {
+			if (this._isCurrentOperation(operation)) {
+				this._setOperationError(error instanceof Error ? error.message : String(error));
+			}
+		} finally {
+			this._finishOperation(operation);
 		}
+	}
+}
+
+export class ProviderSetupEditor extends EditorPane {
+
+	static readonly ID: string = 'workbench.editor.providerSetup';
+
+	private _view: ProviderSetupView | undefined;
+
+	constructor(
+		group: IEditorGroup,
+		@ITelemetryService telemetryService: ITelemetryService,
+		@IThemeService themeService: IThemeService,
+		@IStorageService storageService: IStorageService,
+		@IInstantiationService private readonly _instantiationService: IInstantiationService,
+	) {
+		super(ProviderSetupEditor.ID, group, telemetryService, themeService, storageService);
+	}
+
+	protected override createEditor(parent: HTMLElement): void {
+		this._view = this._register(this._instantiationService.createInstance(ProviderSetupView));
+		this._view.render(parent);
+	}
+
+	override setVisible(visible: boolean): void {
+		super.setVisible(visible);
+		this._view?.setVisible(visible);
+	}
+
+	override layout(dimension: Dimension): void {
+		this._view?.layout(dimension);
+	}
+
+	override focus(): void {
+		super.focus();
+		this._view?.focus();
 	}
 }

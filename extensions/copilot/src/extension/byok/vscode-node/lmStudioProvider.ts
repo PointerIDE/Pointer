@@ -19,6 +19,8 @@ interface LMStudioModelData {
 	context_length?: number;
 }
 
+const LOCAL_PROVIDER_TIMEOUT = 1500;
+
 export interface LMStudioConfig extends LanguageModelChatConfiguration {
 	url: string;
 }
@@ -49,7 +51,14 @@ export class LMStudioLMProvider extends AbstractOpenAICompatibleLMProvider<LMStu
 	}
 
 	protected override async getAllModels(silent: boolean, apiKey: string | undefined, configuration: LMStudioConfig | undefined): Promise<OpenAICompatibleLanguageModelChatInformation<LMStudioConfig>[]> {
-		return super.getAllModels(silent, apiKey, configuration ? { authType: 'none', ...configuration } : configuration);
+		const resolvedConfiguration: LMStudioConfig = configuration ?
+			{ authType: 'none', ...configuration } :
+			{ authType: 'none', url: 'http://localhost:1234/v1' };
+		return super.getAllModels(silent, apiKey, resolvedConfiguration);
+	}
+
+	protected override getModelDiscoveryTimeout(): number {
+		return LOCAL_PROVIDER_TIMEOUT;
 	}
 
 	protected override getModelsBaseUrl(configuration: LMStudioConfig | undefined): string {
@@ -62,7 +71,7 @@ export class LMStudioLMProvider extends AbstractOpenAICompatibleLMProvider<LMStu
 		const contextLength = lmStudioModel.context_length ?? 32768;
 		return {
 			name: lmStudioModel.id,
-			toolCalling: true,
+			toolCalling: false,
 			vision: false,
 			maxInputTokens: contextLength - 4096,
 			maxOutputTokens: contextLength < 4096 ? Math.floor(contextLength / 2) : 4096

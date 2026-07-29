@@ -11,7 +11,7 @@ import { IChatModelInformation } from '../../../platform/endpoint/common/endpoin
 import { ChatEndpoint } from '../../../platform/endpoint/node/chatEndpoint';
 import { ILogService } from '../../../platform/log/common/logService';
 import { isOpenAiFunctionTool } from '../../../platform/networking/common/fetch';
-import { createCapiRequestBody, IChatEndpoint, ICreateEndpointBodyOptions, IEndpointBody, IMakeChatRequestOptions } from '../../../platform/networking/common/networking';
+import { createCapiRequestBody, IChatEndpoint, ICreateEndpointBodyOptions, IEndpointBody, IEndpointFetchOptions, IMakeChatRequestOptions } from '../../../platform/networking/common/networking';
 import { RawMessageConversionCallback } from '../../../platform/networking/common/openai';
 import { IChatWebSocketManager } from '../../../platform/networking/node/chatWebSocketManager';
 import { IExperimentationService } from '../../../platform/telemetry/common/nullExperimentationService';
@@ -138,6 +138,10 @@ export class OpenAIEndpoint extends ChatEndpoint {
 		this._customHeaders = this._sanitizeCustomHeaders(_modelMetadata.requestHeaders);
 	}
 
+	getEndpointFetchOptions(): IEndpointFetchOptions {
+		return { requestTimeout: this.modelMetadata.requestTimeout };
+	}
+
 	private _sanitizeCustomHeaders(headers: Readonly<Record<string, string>> | undefined): Record<string, string> {
 		if (!headers) {
 			return {};
@@ -190,14 +194,14 @@ export class OpenAIEndpoint extends ChatEndpoint {
 				const forbiddenMethods = ['connect', 'trace', 'track'];
 				const methodValue = String(rawValue).toLowerCase().trim();
 				if (forbiddenMethods.includes(methodValue)) {
-					this.logService.warn(`[OpenAIEndpoint] Model '${this.modelMetadata.id}' attempted to set forbidden method '${methodValue}' in header '${key}', skipping.`);
+					this.logService.warn(`[OpenAIEndpoint] Model '${this.modelMetadata.id}' attempted to set a forbidden method in header '${key}', skipping.`);
 					continue;
 				}
 			}
 
 			const sanitizedValue = this._sanitizeHeaderValue(rawValue);
 			if (sanitizedValue === undefined) {
-				this.logService.warn(`[OpenAIEndpoint] Model '${this.modelMetadata.id}' has invalid value for header '${key}': '${rawValue}', skipping.`);
+				this.logService.warn(`[OpenAIEndpoint] Model '${this.modelMetadata.id}' has an invalid value for header '${key}', skipping.`);
 				continue;
 			}
 

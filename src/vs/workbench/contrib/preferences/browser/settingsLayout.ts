@@ -3,9 +3,10 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { isWeb, isWindows } from '../../../../base/common/platform.js';
+import { isWeb } from '../../../../base/common/platform.js';
 import { localize } from '../../../../nls.js';
 import { ISetting, ISettingsGroup } from '../../../services/preferences/common/preferences.js';
+import { AI_MODELS_SETTINGS_CATEGORY_ID } from '../common/preferences.js';
 
 export interface ITOCFilter {
 	include?: {
@@ -31,7 +32,7 @@ const COMMONLY_USED_SETTINGS: readonly string[] = [
 	'editor.fontSize',
 	'editor.formatOnSave',
 	'files.autoSave',
-	'GitHub.copilot-chat.manageExtension',
+	'chat.fontSize',
 	'editor.defaultFormatter',
 	'editor.fontFamily',
 	'editor.wordWrap',
@@ -71,9 +72,112 @@ export const tocData: ITOCEntry<string> = {
 	label: 'root',
 	children: [
 		{
+			// Keep the `features` id for @feature filters in settingsTreeModels.ts.
+			id: 'features',
+			label: localize('general', "General"),
+			children: [
+				{
+					id: 'workbench/settings',
+					label: localize('settings', "Settings Editor"),
+					settings: ['workbench.settings.*']
+				},
+				{
+					id: 'workbench/browser',
+					label: localize('browser', "Browser"),
+					settings: ['workbench.browser.*']
+				},
+				{
+					id: 'window',
+					label: localize('window', "Window"),
+					settings: ['window.*'],
+					children: [
+						{
+							id: 'window/newWindow',
+							label: localize('newWindow', "New Window"),
+							settings: ['window.*newwindow*']
+						}
+					]
+				},
+				{
+					id: 'application/keyboard',
+					label: localize('keyboard', "Keyboard"),
+					settings: ['keyboard.*']
+				},
+				{
+					id: 'application/update',
+					label: localize('update', "Update"),
+					settings: ['update.*']
+				},
+				{
+					id: 'application/settingsSync',
+					label: localize('settingsSync', "Settings Sync"),
+					settings: ['settingsSync.*']
+				},
+				{
+					id: 'features/debug',
+					label: localize('debug', "Debug"),
+					settings: ['debug.*', 'launch']
+				},
+				{
+					id: 'features/testing',
+					label: localize('testing', "Testing"),
+					settings: ['testing.*']
+				},
+				{
+					id: 'features/task',
+					label: localize('task', "Task"),
+					settings: ['task.*']
+				},
+				{
+					id: 'features/problems',
+					label: localize('problems', "Problems"),
+					settings: ['problems.*']
+				},
+				{
+					id: 'features/output',
+					label: localize('output', "Output"),
+					settings: ['output.*']
+				},
+				{
+					id: 'features/comments',
+					label: localize('comments', "Comments"),
+					settings: ['comments.*']
+				},
+				{
+					id: 'features/remote',
+					label: localize('remote', "Remote"),
+					settings: ['remote.*']
+				},
+				{
+					id: 'features/timeline',
+					label: localize('timeline', "Timeline"),
+					settings: ['timeline.*']
+				},
+				{
+					id: 'features/notebook',
+					label: localize('notebook', "Notebook"),
+					settings: ['notebook.*', 'interactiveWindow.*']
+				},
+				{
+					id: 'features/issueReporter',
+					label: localize('issueReporter', "Issue Reporter"),
+					settings: ['issueReporter.*'],
+					hide: !isWeb
+				},
+				// These hidden entries preserve @feature filters after their visible groups moved.
+				{ id: 'features/accessibilitySignals', label: localize('accessibility.signals', "Accessibility Signals"), settings: ['accessibility.signal*'], hide: true },
+				{ id: 'features/accessibility', label: localize('accessibility', "Accessibility"), settings: ['accessibility.*'], hide: true },
+				{ id: 'features/explorer', label: localize('fileExplorer', "Explorer"), settings: ['explorer.*', 'outline.*'], hide: true },
+				{ id: 'features/search', label: localize('search', "Search"), settings: ['search.*'], hide: true },
+				{ id: 'features/scm', label: localize('scm', "Source Control"), settings: ['scm.*'], hide: true },
+				{ id: 'features/extensions', label: localize('extensions', "Extensions"), settings: ['extensions.*'], hide: true },
+				{ id: 'features/terminal', label: localize('terminal', "Terminal"), settings: ['terminal.*'], hide: true },
+				{ id: 'features/mergeEditor', label: localize('mergeEditor', "Merge Editor"), settings: ['mergeEditor.*'], hide: true }
+			]
+		},
+		{
 			id: 'editor',
-			label: localize('textEditor', "Text Editor"),
-			settings: ['editor.*'],
+			label: localize('editor', "Editor"),
 			children: [
 				{
 					id: 'editor/cursor',
@@ -116,19 +220,18 @@ export const tocData: ITOCEntry<string> = {
 					settings: ['editor.*suggest*']
 				},
 				{
-					id: 'editor/files',
-					label: localize('files', "Files"),
-					settings: ['files.*']
+					id: 'workbench/editor',
+					label: localize('editorManagement', "Editor Management"),
+					settings: ['workbench.editor.*']
 				}
 			]
 		},
 		{
-			id: 'workbench',
-			label: localize('workbench', "Workbench"),
-			settings: ['workbench.*'],
+			id: 'appearance',
+			label: localize('appearance', "Appearance"),
 			children: [
 				{
-					id: 'workbench/appearance',
+					id: 'appearance/workbench',
 					label: localize('appearance', "Appearance"),
 					settings: ['workbench.activityBar.*', 'workbench.*color*', 'workbench.fontAliasing', 'workbench.iconTheme', 'workbench.sidebar.location', 'workbench.*.visible', 'workbench.tips.enabled', 'workbench.tree.*', 'workbench.view.*']
 				},
@@ -136,16 +239,6 @@ export const tocData: ITOCEntry<string> = {
 					id: 'workbench/breadcrumbs',
 					label: localize('breadcrumbs', "Breadcrumbs"),
 					settings: ['breadcrumbs.*']
-				},
-				{
-					id: 'workbench/editor',
-					label: localize('editorManagement', "Editor Management"),
-					settings: ['workbench.editor.*']
-				},
-				{
-					id: 'workbench/settings',
-					label: localize('settings', "Settings Editor"),
-					settings: ['workbench.settings.*']
 				},
 				{
 					id: 'workbench/zenmode',
@@ -156,29 +249,12 @@ export const tocData: ITOCEntry<string> = {
 					id: 'workbench/screencastmode',
 					label: localize('screencastMode', "Screencast Mode"),
 					settings: ['screencastMode.*']
-				},
-				{
-					id: 'workbench/browser',
-					label: localize('browser', "Browser"),
-					settings: ['workbench.browser.*']
 				}
 			]
 		},
 		{
-			id: 'window',
-			label: localize('window', "Window"),
-			settings: ['window.*'],
-			children: [
-				{
-					id: 'window/newWindow',
-					label: localize('newWindow', "New Window"),
-					settings: ['window.*newwindow*']
-				}
-			]
-		},
-		{
-			id: 'chat',
-			label: localize('chat', "Chat"),
+			id: AI_MODELS_SETTINGS_CATEGORY_ID,
+			label: localize('aiAndModels', "AI & Models"),
 			children: [
 				{
 					id: 'chat/agent',
@@ -192,7 +268,8 @@ export const tocData: ITOCEntry<string> = {
 						'chat.customAgentInSubagent.*',
 						'chat.editing.autoAcceptDelay',
 						'chat.editing.confirmEditRequest*',
-						'chat.planAgent.defaultModel'
+						'chat.planAgent.defaultModel',
+						'github.copilot.chat.agent.terminal.*'
 					]
 				},
 				{
@@ -282,109 +359,71 @@ export const tocData: ITOCEntry<string> = {
 						'chat.disableAIFeatures',
 						'chat.allowAnonymousAccess'
 					]
-				},
-			]
-		},
-		{
-			id: 'features',
-			label: localize('features', "Features"),
-			children: [
-				{
-					id: 'features/accessibilitySignals',
-					label: localize('accessibility.signals', 'Accessibility Signals'),
-					settings: ['accessibility.signal*']
-				},
-				{
-					id: 'features/accessibility',
-					label: localize('accessibility', "Accessibility"),
-					settings: ['accessibility.*']
-				},
-				{
-					id: 'features/explorer',
-					label: localize('fileExplorer', "Explorer"),
-					settings: ['explorer.*', 'outline.*']
-				},
-				{
-					id: 'features/search',
-					label: localize('search', "Search"),
-					settings: ['search.*']
-				},
-				{
-					id: 'features/debug',
-					label: localize('debug', "Debug"),
-					settings: ['debug.*', 'launch']
-				},
-				{
-					id: 'features/testing',
-					label: localize('testing', "Testing"),
-					settings: ['testing.*']
-				},
-				{
-					id: 'features/scm',
-					label: localize('scm', "Source Control"),
-					settings: ['scm.*']
-				},
-				{
-					id: 'features/extensions',
-					label: localize('extensions', "Extensions"),
-					settings: ['extensions.*']
-				},
-				{
-					id: 'features/terminal',
-					label: localize('terminal', "Terminal"),
-					settings: ['terminal.*']
-				},
-				{
-					id: 'features/task',
-					label: localize('task', "Task"),
-					settings: ['task.*']
-				},
-				{
-					id: 'features/problems',
-					label: localize('problems', "Problems"),
-					settings: ['problems.*']
-				},
-				{
-					id: 'features/output',
-					label: localize('output', "Output"),
-					settings: ['output.*']
-				},
-				{
-					id: 'features/comments',
-					label: localize('comments', "Comments"),
-					settings: ['comments.*']
-				},
-				{
-					id: 'features/remote',
-					label: localize('remote', "Remote"),
-					settings: ['remote.*']
-				},
-				{
-					id: 'features/timeline',
-					label: localize('timeline', "Timeline"),
-					settings: ['timeline.*']
-				},
-				{
-					id: 'features/notebook',
-					label: localize('notebook', 'Notebook'),
-					settings: ['notebook.*', 'interactiveWindow.*']
-				},
-				{
-					id: 'features/mergeEditor',
-					label: localize('mergeEditor', 'Merge Editor'),
-					settings: ['mergeEditor.*']
-				},
-				{
-					id: 'features/issueReporter',
-					label: localize('issueReporter', 'Issue Reporter'),
-					settings: ['issueReporter.*'],
-					hide: !isWeb
 				}
 			]
 		},
 		{
-			id: 'application',
-			label: localize('application', "Application"),
+			id: 'files',
+			label: localize('files', "Files"),
+			children: [
+				{
+					id: 'files/handling',
+					label: localize('fileHandling', "File Handling"),
+					settings: ['files.*']
+				},
+				{
+					id: 'files/explorer',
+					label: localize('fileExplorer', "Explorer"),
+					settings: ['explorer.*', 'outline.*']
+				},
+				{
+					id: 'files/search',
+					label: localize('search', "Search"),
+					settings: ['search.*']
+				}
+			]
+		},
+		{
+			id: 'terminal',
+			label: localize('terminal', "Terminal"),
+			children: [
+				{
+					id: 'terminal/integrated',
+					label: localize('integratedTerminal', "Integrated Terminal"),
+					settings: ['terminal.*']
+				}
+			]
+		},
+		{
+			id: 'sourceControl',
+			label: localize('gitAndSourceControl', "Git & Source Control"),
+			children: [
+				{
+					id: 'sourceControl/scm',
+					label: localize('scm', "Source Control"),
+					settings: ['scm.*']
+				},
+				{
+					id: 'sourceControl/mergeEditor',
+					label: localize('mergeEditor', "Merge Editor"),
+					settings: ['mergeEditor.*']
+				}
+			]
+		},
+		{
+			id: 'extensions',
+			label: localize('extensions', "Extensions"),
+			children: [
+				{
+					id: 'extensions/management',
+					label: localize('extensionManagement', "Extension Management"),
+					settings: ['extensions.*']
+				}
+			]
+		},
+		{
+			id: 'privacyAndNetwork',
+			label: localize('privacyAndNetwork', "Privacy & Network"),
 			children: [
 				{
 					id: 'application/http',
@@ -392,14 +431,9 @@ export const tocData: ITOCEntry<string> = {
 					settings: ['http.*']
 				},
 				{
-					id: 'application/keyboard',
-					label: localize('keyboard', "Keyboard"),
-					settings: ['keyboard.*']
-				},
-				{
-					id: 'application/update',
-					label: localize('update', "Update"),
-					settings: ['update.*']
+					id: 'application/network',
+					label: localize('network', "Network"),
+					settings: ['network.*']
 				},
 				{
 					id: 'application/telemetry',
@@ -407,37 +441,68 @@ export const tocData: ITOCEntry<string> = {
 					settings: ['telemetry.*']
 				},
 				{
-					id: 'application/settingsSync',
-					label: localize('settingsSync', "Settings Sync"),
-					settings: ['settingsSync.*']
-				},
-				{
-					id: 'application/network',
-					label: localize('network', "Network"),
-					settings: ['network.*']
-				},
-				{
-					id: 'application/experimental',
-					label: localize('experimental', "Experimental"),
-					settings: ['application.experimental.*']
-				},
-				{
-					id: 'application/other',
-					label: localize('other', "Other"),
-					settings: ['application.*'],
-					hide: isWindows
+					id: 'security',
+					label: localize('security', "Security"),
+					settings: ['security.*'],
+					children: [
+						{
+							id: 'security/workspace',
+							label: localize('workspace', "Workspace"),
+							settings: ['security.workspace.*']
+						}
+					]
 				}
 			]
 		},
 		{
-			id: 'security',
-			label: localize('security', "Security"),
-			settings: ['security.*'],
+			id: 'accessibility',
+			label: localize('accessibility', "Accessibility"),
 			children: [
 				{
-					id: 'security/workspace',
-					label: localize('workspace', "Workspace"),
-					settings: ['security.workspace.*']
+					id: 'accessibility/signals',
+					label: localize('accessibility.signals', "Accessibility Signals"),
+					settings: ['accessibility.signal*']
+				},
+				{
+					id: 'accessibility/general',
+					label: localize('accessibility', "Accessibility"),
+					settings: ['accessibility.*']
+				}
+			]
+		},
+		{
+			id: 'advanced',
+			label: localize('advanced', "Advanced"),
+			children: [
+				{
+					id: 'advanced/experimental',
+					label: localize('experimental', "Experimental"),
+					settings: ['application.experimental.*', '@tag:experimental', '@tag:preview']
+				},
+				{
+					id: 'advanced/tagged',
+					label: localize('advancedSettings', "Advanced Settings"),
+					settings: ['@tag:advanced']
+				},
+				{
+					id: 'advanced/editor',
+					label: localize('otherEditorSettings', "Other Editor Settings"),
+					settings: ['editor.*']
+				},
+				{
+					id: 'advanced/workbench',
+					label: localize('otherWorkbenchSettings', "Other Workbench Settings"),
+					settings: ['workbench.*']
+				},
+				{
+					id: 'advanced/chat',
+					label: localize('otherAiSettings', "Other AI & Model Settings"),
+					settings: ['chat.*']
+				},
+				{
+					id: 'application/other',
+					label: localize('otherApplicationSettings', "Other Application Settings"),
+					settings: ['application.*']
 				}
 			]
 		}

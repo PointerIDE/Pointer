@@ -167,7 +167,14 @@ function createModelAction(
 	// Only show pricing in the description line if it's a multiplier (e.g. "2x").
 	// Detailed AIC/token pricing is shown in the hover instead.
 	const pricingForDescription = isMultiplierPricing(model) ? model.metadata.pricing : undefined;
-	const detailParts = [model.metadata.detail, pricingForDescription].filter(Boolean);
+	const provider = model.metadata.auth?.providerLabel ?? model.metadata.vendor;
+	const account = model.metadata.auth?.accountLabel;
+	const context = model.metadata.maxInputTokens ? localize('chat.modelPicker.context', "{0} context", formatTokenCount(model.metadata.maxInputTokens)) : undefined;
+	const toolSupport = model.metadata.capabilities?.toolCalling === true ? localize('chat.modelPicker.tools', "Tools") : undefined;
+	const hasConnectedSourceDetails = !!model.metadata.auth || (model.metadata.vendor !== 'copilot' && !!model.metadata.detail);
+	const detailParts = hasConnectedSourceDetails
+		? [provider, account, model.metadata.detail, context, toolSupport, pricingForDescription].filter(Boolean)
+		: [model.metadata.detail, pricingForDescription].filter(Boolean);
 	const baseDescription = detailParts.length > 0 ? detailParts.join(' · ') : undefined;
 	const description = configDescription && baseDescription
 		? `${configDescription} · ${baseDescription}`
@@ -230,6 +237,20 @@ export function buildModelPickerItems(
 
 	if (useGroupedModelPicker) {
 		let otherModels: ILanguageModelChatMetadataAndIdentifier[] = [];
+		const autoModel = models.find(model => model.metadata.id === 'auto');
+		if (autoModel) {
+			items.push(createModelItem(createModelAction(autoModel, selectedModelId, onSelect, languageModelsService!), autoModel));
+		} else {
+			items.push(createModelItem({
+				id: 'auto',
+				enabled: true,
+				checked: selectedModelId === 'auto',
+				class: undefined,
+				tooltip: localize('chat.modelPicker.auto.tooltip', "Automatically choose the best available model"),
+				label: localize('chat.modelPicker.auto', "Auto"),
+				run: () => { },
+			}));
+		}
 		if (models.length) {
 			// Collect all available models into lookup maps
 			const allModelsMap = new Map<string, ILanguageModelChatMetadataAndIdentifier>();
@@ -247,6 +268,9 @@ export function buildModelPickerItems(
 					placed.add(metadataId);
 				}
 			};
+			if (autoModel) {
+				markPlaced(autoModel.identifier, autoModel.metadata.id);
+			}
 
 			const resolveModel = (id: string) => allModelsMap.get(id) ?? modelsByMetadataId.get(id);
 
@@ -695,7 +719,7 @@ export class ModelPickerWidget extends Disposable {
 			filterPlaceholder: localize('chat.modelPicker.search', "Search models"),
 			filterActions: showFilter && manageModelsAction ? [manageModelsAction] : undefined,
 			focusFilterOnOpen: true,
-			collapsedByDefault: new Set([ModelPickerSection.Other]),
+			collapsedByDefault: new Set<string>(),
 			onDidToggleSection: (section: string, collapsed: boolean) => {
 				if (section === ModelPickerSection.Other) {
 					logModelPickerInteraction(collapsed ? 'otherModelsCollapsed' : 'otherModelsExpanded');

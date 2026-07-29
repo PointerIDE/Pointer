@@ -145,7 +145,6 @@ import { QuickChatService } from './widgetHosts/chatQuick.js';
 import { ChatResponseAccessibleView } from './accessibility/chatResponseAccessibleView.js';
 import { ChatTerminalOutputAccessibleView } from './accessibility/chatTerminalOutputAccessibleView.js';
 import { ChatSetupContribution, ChatTeardownContribution } from './chatSetup/chatSetupContributions.js';
-import { ChatStatusBarEntry } from './chatStatus/chatStatusEntry.js';
 import { ChatVariablesService } from './attachments/chatVariables.js';
 import { ChatWidget } from './widget/chatWidget.js';
 import { ChatCodeBlockContextProviderService } from './codeBlockContextProviderService.js';
@@ -339,7 +338,7 @@ configurationRegistry.registerConfiguration({
 			type: 'boolean',
 			scope: ConfigurationScope.APPLICATION,
 			description: nls.localize('chat.tips.enabled', "Controls whether tips are shown above user messages in chat. New tips are added frequently, so this is a helpful way to stay up to date with the latest features."),
-			default: true,
+			default: false,
 		},
 		'chat.upvoteAnimation': {
 			type: 'string',
@@ -1908,14 +1907,9 @@ class ChatAgentSettingContribution extends Disposable implements IWorkbenchContr
 	}
 
 	private registerNewChatButtonIcon(): void {
-		this.experimentService.getTreatment<string>('chatNewButtonIcon').then((value) => {
-			const supportedValues = ['copilot', 'new-session', 'comment'];
-			if (typeof value === 'string' && supportedValues.includes(value)) {
-				this.newChatButtonExperimentIcon.set(value);
-			} else {
-				this.newChatButtonExperimentIcon.reset();
-			}
-		});
+		// Pointer uses one stable new-agent mark. Remote experiments must not make
+		// this primary action visually change between sessions or installations.
+		this.newChatButtonExperimentIcon.reset();
 	}
 
 	private registerDefaultModeSetting(): void {
@@ -2195,7 +2189,6 @@ registerWorkbenchContribution2(ChatViewsWelcomeHandler.ID, ChatViewsWelcomeHandl
 registerWorkbenchContribution2(ChatGettingStartedContribution.ID, ChatGettingStartedContribution, WorkbenchPhase.Eventually);
 registerWorkbenchContribution2(ChatSetupContribution.ID, ChatSetupContribution, WorkbenchPhase.BlockRestore);
 registerWorkbenchContribution2(ChatTeardownContribution.ID, ChatTeardownContribution, WorkbenchPhase.AfterRestored);
-registerWorkbenchContribution2(ChatStatusBarEntry.ID, ChatStatusBarEntry, WorkbenchPhase.BlockRestore);
 registerWorkbenchContribution2(BuiltinToolsContribution.ID, BuiltinToolsContribution, WorkbenchPhase.Eventually);
 registerWorkbenchContribution2(UsagesToolContribution.ID, UsagesToolContribution, WorkbenchPhase.BlockRestore);
 registerWorkbenchContribution2(RenameToolContribution.ID, RenameToolContribution, WorkbenchPhase.BlockRestore);

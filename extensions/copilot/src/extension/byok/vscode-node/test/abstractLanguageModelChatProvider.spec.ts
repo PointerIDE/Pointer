@@ -5,22 +5,26 @@
 
 import { describe, expect, it, vi } from 'vitest';
 import * as vscode from 'vscode';
-import { AbstractOpenAICompatibleLMProvider, type LanguageModelChatConfiguration } from '../abstractLanguageModelChatProvider';
+import { AbstractOpenAICompatibleLMProvider, parseAdditionalHeaders, resolveRequestTimeout, type LanguageModelChatConfiguration } from '../abstractLanguageModelChatProvider';
 import type { IBYOKStorageService } from '../byokStorageService';
 
 class TestOpenAICompatibleProvider extends AbstractOpenAICompatibleLMProvider<LanguageModelChatConfiguration> {
+	public readonly fetch;
+
 	constructor(fetchImpl: (url: string, options?: unknown) => Promise<{ ok: boolean; status?: number; statusText?: string; json: () => Promise<unknown> }>) {
+		const fetch = vi.fn(fetchImpl);
 		super(
 			'test-provider',
 			'Test Provider',
 			undefined,
 			createStorageService(),
-			{ fetch: vi.fn(fetchImpl) } as any,
+			{ fetch } as any,
 			createLogService(),
 			{ createInstance: vi.fn(() => ({ provideLanguageModelResponse: vi.fn(), provideTokenCount: vi.fn() })) } as any,
 			{} as any,
 			{} as any
 		);
+		this.fetch = fetch;
 	}
 
 	protected override getModelsBaseUrl(configuration: LanguageModelChatConfiguration | undefined): string | undefined {
@@ -69,6 +73,89 @@ function createLogService() {
 }
 
 describe('AbstractOpenAICompatibleLMProvider', () => {
+	it('validates custom request timeouts', () => {
+		expect(resolveRequestTimeout(undefined, 15000)).toBe(15000);
+		expect(resolveRequestTimeout(250, 15000)).toBe(250);
+		expect(resolveRequestTimeout(120000, 15000)).toBe(120000);
+		expect(() => resolveRequestTimeout(249, 15000)).toThrow();
+		expect(() => resolveRequestTimeout(120001, 15000)).toThrow();
+		expect(() => resolveRequestTimeout(1.5, 15000)).toThrow();
+	});
+
+	it('parses additional headers without exposing values in configuration JSON', () => {
+		expect(parseAdditionalHeaders('X-Organization: example; X-Project: pointer')).toEqual({
+			'X-Organization': 'example',
+			'X-Project': 'pointer'
+		});
+		expect(() => parseAdditionalHeaders('invalid-header')).toThrow();
+		expect(() => parseAdditionalHeaders('X-Test: value\r\ninjected: value')).toThrow();
+	});
+
+	it('does not fetch disabled providers', async () => {
+		const provider = new TestOpenAICompatibleProvider(async () => {
+			throw new Error('disabled providers must not fetch');
+		});
+		const tokenSource = new vscode.CancellationTokenSource();
+
+		try {
+			const models = await provider.provideLanguageModelChatInformation({
+				silent: false,
+				configuration: {
+					baseUrl: 'https://example.com/v1',
+					enabled: false
+				}
+			}, tokenSource.token);
+
+			expect(models).toEqual([]);
+			expect(provider.fetch).not.toHaveBeenCalled();
+		} finally {
+			tokenSource.dispose();
+		}
+	});
+
+	it('uses configured timeout and additional headers for model discovery', async () => {
+		const provider = new TestOpenAICompatibleProvider(async () => ({
+			ok: true,
+			json: async () => ({ data: [{ id: 'test-model' }] })
+		}));
+		const tokenSource = new vscode.CancellationTokenSource();
+
+		try {
+			await provider.provideLanguageModelChatInformation({
+				silent: false,
+				configuration: {
+					baseUrl: 'https://example.com/v1',
+					authType: 'none',
+					requestTimeout: 2500,
+					additionalHeaders: 'X-Organization: example'
+				}
+			}, tokenSource.token);
+
+			expect(provider.fetch).toHaveBeenCalledWith('https://example.com/v1/models', expect.objectContaining({
+				timeout: 2500,
+				headers: expect.objectContaining({ 'X-Organization': 'example' })
+			}));
+		} finally {
+			tokenSource.dispose();
+		}
+	});
+
+	it('does not fetch for an unconfigured provider during silent discovery', async () => {
+		const provider = new TestOpenAICompatibleProvider(async () => {
+			throw new Error('silent discovery must not fetch');
+		});
+		const tokenSource = new vscode.CancellationTokenSource();
+
+		try {
+			const models = await provider.provideLanguageModelChatInformation({ silent: true }, tokenSource.token);
+
+			expect(models).toEqual([]);
+			expect(provider.fetch).not.toHaveBeenCalled();
+		} finally {
+			tokenSource.dispose();
+		}
+	});
+
 	it('normalizes discovery endpoints and respects explicit model URLs', () => {
 		const provider = new TestOpenAICompatibleProvider(async () => ({
 			ok: true,
@@ -127,7 +214,127 @@ describe('AbstractOpenAICompatibleLMProvider', () => {
 		}, tokenSource.token);
 
 		expect(fallbackModels.map(model => model.id)).toEqual(['cached-model', 'manual-model']);
-		expect(fallbackModels[0].isDefault?.[vscode.ChatLocation.Panel]).toBe(true);
-		expect(fallbackModels[1].isDefault?.[vscode.ChatLocation.Editor]).toBe(true);
+		const chatDefaults = fallbackModels[0].isDefault;
+		const codingDefaults = fallbackModels[1].isDefault;
+		expect(typeof chatDefaults === 'object' && chatDefaults[vscode.ChatLocation.Panel]).toBe(true);
+		expect(typeof codingDefaults === 'object' && codingDefaults[vscode.ChatLocation.Editor]).toBe(true);
+		expect(fallbackModels[1].capabilities?.toolCalling).toBe(false);
+		expect(fallbackModels[1].capabilities?.imageInput).toBe(false);
+	});
+
+	it('keeps unique cached and manual models after successful discovery', async () => {
+		const provider = new TestOpenAICompatibleProvider(async () => ({
+			ok: true,
+			json: async () => ({ data: [{ id: 'discovered-model' }] }),
+		}));
+		const tokenSource = new vscode.CancellationTokenSource();
+
+		try {
+			const models = await provider.provideLanguageModelChatInformation({
+				silent: false,
+				configuration: {
+					baseUrl: 'https://example.com/v1',
+					authType: 'none',
+					cachedModels: [{
+						id: 'cached-model',
+						name: 'Cached Model',
+						maxInputTokens: 32000,
+						maxOutputTokens: 2048,
+						toolCalling: true,
+						vision: true
+					}],
+					manualModels: ['manual-model']
+				}
+			}, tokenSource.token);
+
+			expect(models.map(model => model.id)).toEqual(['discovered-model', 'cached-model', 'manual-model']);
+			expect(models.find(model => model.id === 'cached-model')).toMatchObject({
+				name: 'Cached Model',
+				maxInputTokens: 32000,
+				maxOutputTokens: 2048,
+				capabilities: { toolCalling: true, imageInput: true }
+			});
+		} finally {
+			tokenSource.dispose();
+		}
+	});
+
+	it('prefers discovered metadata when a cached model has the same id', async () => {
+		const provider = new TestOpenAICompatibleProvider(async () => ({
+			ok: true,
+			json: async () => ({
+				data: [{
+					id: 'duplicate-model',
+					name: 'Discovered Model',
+					max_input_tokens: 64000,
+					max_output_tokens: 4096,
+					supported_parameters: ['tools'],
+					input_modalities: ['text', 'image']
+				}]
+			}),
+		}));
+		const tokenSource = new vscode.CancellationTokenSource();
+
+		try {
+			const models = await provider.provideLanguageModelChatInformation({
+				silent: false,
+				configuration: {
+					baseUrl: 'https://example.com/v1',
+					authType: 'none',
+					cachedModels: [{
+						id: 'duplicate-model',
+						name: 'Cached Model',
+						maxInputTokens: 1000,
+						maxOutputTokens: 100,
+						toolCalling: false,
+						vision: false
+					}]
+				}
+			}, tokenSource.token);
+
+			expect(models).toHaveLength(1);
+			expect(models[0]).toMatchObject({
+				id: 'duplicate-model',
+				name: 'Discovered Model',
+				maxInputTokens: 64000,
+				maxOutputTokens: 4096,
+				capabilities: { toolCalling: true, imageInput: true }
+			});
+		} finally {
+			tokenSource.dispose();
+		}
+	});
+
+	it('keeps default roles and fallback capabilities for merged manual models', async () => {
+		const provider = new TestOpenAICompatibleProvider(async () => ({
+			ok: true,
+			json: async () => ({ data: [{ id: 'discovered-model' }] }),
+		}));
+		const tokenSource = new vscode.CancellationTokenSource();
+
+		try {
+			const models = await provider.provideLanguageModelChatInformation({
+				silent: false,
+				configuration: {
+					baseUrl: 'https://example.com/v1',
+					authType: 'none',
+					manualModels: ['manual-model'],
+					defaultChatModel: 'discovered-model',
+					defaultCodingModel: 'manual-model'
+				}
+			}, tokenSource.token);
+
+			const discoveredModel = models.find(model => model.id === 'discovered-model');
+			const manualModel = models.find(model => model.id === 'manual-model');
+			expect(typeof discoveredModel?.isDefault === 'object' && discoveredModel.isDefault[vscode.ChatLocation.Panel]).toBe(true);
+			expect(typeof manualModel?.isDefault === 'object' && manualModel.isDefault[vscode.ChatLocation.Editor]).toBe(true);
+			expect(manualModel).toMatchObject({
+				maxInputTokens: 128000,
+				maxOutputTokens: 8192,
+				capabilities: { toolCalling: false, imageInput: false }
+			});
+		} finally {
+			tokenSource.dispose();
+		}
 	});
 });

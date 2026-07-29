@@ -796,6 +796,7 @@ export class SCMInputWidget {
 					this.element.style.borderBottomRightRadius = '2px';
 				});
 				disposables.add(actionbar);
+				disposables.add(action);
 				actionbar.push(action, { icon: true, label: false });
 
 				return Disposable.None;

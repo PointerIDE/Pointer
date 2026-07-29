@@ -96,6 +96,22 @@
 	flex: auto;
 }
 
+.settings-editor > .settings-header > .settings-header-controls .settings-transfer-container {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin-left: auto;
+	padding: 2px 0 6px 8px;
+}
+
+.settings-editor > .settings-header > .settings-header-controls .settings-transfer-container .settings-transfer-button {
+	box-sizing: border-box;
+	width: auto;
+	min-width: 0;
+	padding-left: 10px;
+	padding-right: 10px;
+}
+
 .settings-editor > .settings-header > .settings-header-controls .settings-tabs-widget .action-label {
 	opacity: 0.9;
 	border-radius: 0;
@@ -181,6 +197,54 @@
 .settings-editor > .settings-body .settings-toc-container,
 .settings-editor > .settings-body .settings-tree-container {
 	height: 100%;
+}
+
+.settings-editor > .settings-body .settings-content-container {
+	height: 100%;
+	min-width: 0;
+	overflow: hidden;
+}
+
+.settings-editor > .settings-body .settings-provider-management {
+	display: flex;
+	flex-direction: column;
+	width: 100%;
+	height: 100%;
+	min-width: 0;
+	overflow: hidden;
+	background: var(--vscode-editor-background);
+}
+
+.settings-editor > .settings-body .settings-provider-management-header {
+	flex: 0 0 auto;
+	padding: 16px 24px 12px;
+	border-bottom: 1px solid var(--vscode-settings-headerBorder, var(--vscode-panel-border));
+}
+
+.settings-editor > .settings-body .settings-provider-management-title {
+	margin: 0;
+	font-size: 18px;
+	font-weight: 600;
+	color: var(--vscode-settings-headerForeground);
+}
+
+.settings-editor > .settings-body .settings-provider-management-description {
+	margin: 6px 0 0;
+	max-width: 760px;
+	line-height: 1.45;
+	color: var(--vscode-descriptionForeground);
+}
+
+.settings-editor > .settings-body .settings-provider-management-view {
+	flex: 1 1 auto;
+	width: 100%;
+	min-height: 0;
+	min-width: 0;
+	overflow: hidden;
+}
+
+.settings-editor.narrow-width > .settings-body .settings-provider-management-header {
+	padding: 12px;
 }
 
 .settings-editor > .settings-body .settings-tree-container .settings-group-title-label,
@@ -730,7 +794,9 @@
 }
 
 .settings-editor > .settings-body .settings-tree-container .settings-group-title-label {
-	display: inline-block;
+	display: flex;
+	align-items: center;
+	gap: 8px;
 	margin: 0px;
 	font-weight: 600;
 	height: 100%;
@@ -741,6 +807,21 @@
 	position: relative;
 	overflow: hidden;
 	text-overflow: ellipsis;
+}
+
+.settings-editor > .settings-body .settings-tree-container .settings-group-title-text {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.settings-editor > .settings-body .settings-tree-container .settings-group-reset-button {
+	flex: 0 0 28px;
+	width: 28px;
+	min-width: 28px;
+	height: 26px;
+	padding: 2px 6px;
 }
 
 .settings-editor > .settings-body .settings-tree-container .settings-group-title-label.settings-group-level-1 {
@@ -771,4 +852,115 @@
 .settings-editor > .settings-body .settings-toc-container .monaco-list-row.focused .codicon,
 .settings-editor > .settings-body .settings-tree-container .monaco-list-row.focused .setting-item-contents .codicon {
 	color: inherit !important;
+}
+
+/* Compact settings navigation. The regular TOC remains the source of category state. */
+.settings-editor > .settings-header > .settings-compact-navigation {
+	display: none;
+}
+
+.settings-editor.narrow-width > .settings-header {
+	padding-left: 12px;
+	padding-right: 12px;
+}
+
+.settings-editor.narrow-width > .settings-header > .search-container,
+.settings-editor.narrow-width > .settings-header > .search-container > .suggest-input-container,
+.settings-editor.narrow-width > .settings-header > .settings-header-controls,
+.settings-editor.narrow-width > .settings-header > .settings-header-controls .settings-target-container {
+	min-width: 0;
+}
+
+.settings-editor.narrow-width > .settings-header > .search-container > .search-container-widgets > .settings-count-widget {
+	display: none;
+}
+
+.settings-editor.narrow-width > .settings-header > .settings-header-controls .settings-tabs-widget > .monaco-action-bar .actions-container {
+	flex-wrap: wrap;
+}
+
+.settings-editor.narrow-width > .settings-header > .settings-header-controls .last-synced-label {
+	overflow-wrap: anywhere;
+}
+
+.settings-editor.narrow-width > .settings-header > .settings-header-controls .settings-transfer-container {
+	flex: 1 1 100%;
+	flex-wrap: wrap;
+	margin-left: 0;
+	padding-left: 0;
+}
+
+.settings-editor.narrow-width > .settings-header > .settings-compact-navigation {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-width: 0;
+	margin-top: 10px;
+}
+
+.settings-editor > .settings-header > .settings-compact-navigation > .settings-compact-navigation-label {
+	flex: 0 0 auto;
+}
+
+.settings-editor > .settings-header > .settings-compact-navigation > .settings-compact-navigation-select {
+	flex: 1 1 auto;
+	min-width: 0;
+}
+
+.settings-editor > .settings-header > .settings-compact-navigation > .settings-compact-navigation-select .monaco-select-box {
+	box-sizing: border-box;
+	width: 100%;
+	max-width: 100%;
+}
+
+/* Keep setting controls inside the single-column content area. */
+.settings-editor.narrow-width > .settings-body .settings-tree-container .monaco-list-row .monaco-tl-contents {
+	box-sizing: border-box;
+	min-width: 0;
+	padding-left: 24px;
+	padding-right: 12px;
+}
+
+.settings-editor.narrow-width > .settings-body .settings-tree-container .setting-item-contents,
+.settings-editor.narrow-width > .settings-body .settings-tree-container .setting-item-contents .setting-item-value,
+.settings-editor.narrow-width > .settings-body .settings-tree-container .setting-item-contents .setting-item-control {
+	box-sizing: border-box;
+	min-width: 0;
+	max-width: 100%;
+}
+
+.settings-editor.narrow-width > .settings-body .settings-tree-container .setting-item-contents .setting-item-title,
+.settings-editor.narrow-width > .settings-body .settings-tree-container .setting-item-contents .setting-item-description,
+.settings-editor.narrow-width > .settings-body .settings-tree-container .setting-item-contents .setting-item-markdown {
+	max-width: 100%;
+	overflow-wrap: anywhere;
+}
+
+.settings-editor.narrow-width > .settings-body .settings-tree-container .setting-item.setting-item-text .setting-item-control,
+.settings-editor.narrow-width > .settings-body .settings-tree-container .setting-item.setting-item-number .setting-item-value > .setting-item-control,
+.settings-editor.narrow-width > .settings-body .settings-tree-container .setting-item.setting-item-enum .setting-item-value > .setting-item-control,
+.settings-editor.narrow-width > .settings-body .settings-tree-container .setting-list-widget .setting-list-object-list-row.select-container {
+	width: 100%;
+	min-width: 0;
+	max-width: 100%;
+}
+
+.settings-editor.narrow-width > .settings-body .settings-tree-container .setting-item.setting-item-text .setting-item-validation-message,
+.settings-editor.narrow-width > .settings-body .settings-tree-container .setting-item.setting-item-number .setting-item-validation-message,
+.settings-editor.narrow-width > .settings-body .settings-tree-container .setting-item.setting-item-enum .setting-item-value > .setting-item-control > select,
+.settings-editor.narrow-width > .settings-body .settings-tree-container .setting-item.setting-item-enum .setting-item-value > .setting-item-control > .monaco-select-box,
+.settings-editor.narrow-width > .settings-body .settings-tree-container .setting-list-widget .setting-list-object-list-row.select-container > select {
+	box-sizing: border-box;
+	width: 100%;
+	min-width: 0;
+	max-width: 100%;
+}
+
+.settings-editor.narrow-width > .settings-body .settings-tree-container .setting-item-contents .setting-item-control .monaco-inputbox,
+.settings-editor.narrow-width > .settings-body .settings-tree-container .setting-item-contents .setting-item-control .monaco-inputbox > .ibwrapper,
+.settings-editor.narrow-width > .settings-body .settings-tree-container .setting-item-contents .setting-item-control input {
+	box-sizing: border-box;
+	width: 100%;
+	min-width: 0;
+	max-width: 100%;
 }

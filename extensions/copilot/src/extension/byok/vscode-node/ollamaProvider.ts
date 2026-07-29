@@ -32,6 +32,7 @@ interface OllamaVersionResponse {
 
 // Minimum supported Ollama version - versions below this may have compatibility issues
 const MINIMUM_OLLAMA_VERSION = '0.6.4';
+const LOCAL_PROVIDER_TIMEOUT = 1500;
 
 export interface OllamaConfig extends LanguageModelChatConfiguration {
 	url: string;
@@ -81,17 +82,13 @@ export class OllamaLMProvider extends AbstractOpenAICompatibleLMProvider<OllamaC
 	}
 
 	protected override async getAllModels(silent: boolean, apiKey: string | undefined, config: OllamaConfig | undefined): Promise<OpenAICompatibleLanguageModelChatInformation<OllamaConfig>[]> {
-		if (!config) {
-			return [];
-		}
-
-		const ollamaBaseUrl = config.url;
+		const ollamaBaseUrl = config?.url ?? 'http://localhost:11434';
 
 		try {
 			// Check Ollama server version before proceeding with model operations
 			await this._checkOllamaVersion(ollamaBaseUrl);
 
-			const response = await this._fetcherService.fetch(`${ollamaBaseUrl}/api/tags`, { method: 'GET', callSite: 'ollama-tags' });
+			const response = await this._fetcherService.fetch(`${ollamaBaseUrl}/api/tags`, { method: 'GET', callSite: 'ollama-tags', timeout: LOCAL_PROVIDER_TIMEOUT });
 			const models = (await response.json()).models;
 			this._knownModels = {};
 			for (const model of models) {
@@ -189,6 +186,7 @@ export class OllamaLMProvider extends AbstractOpenAICompatibleLMProvider<OllamaC
 		const response = await this._fetcherService.fetch(`${ollamaBaseUrl}/api/show`, {
 			method: 'POST',
 			callSite: 'ollama-show',
+			timeout: LOCAL_PROVIDER_TIMEOUT,
 			headers: {
 				'Content-Type': 'application/json'
 			},
@@ -202,7 +200,7 @@ export class OllamaLMProvider extends AbstractOpenAICompatibleLMProvider<OllamaC
 	 */
 	private async _checkOllamaVersion(ollamaBaseUrl: string): Promise<void> {
 		try {
-			const response = await this._fetcherService.fetch(`${ollamaBaseUrl}/api/version`, { method: 'GET', callSite: 'ollama-version' });
+			const response = await this._fetcherService.fetch(`${ollamaBaseUrl}/api/version`, { method: 'GET', callSite: 'ollama-version', timeout: LOCAL_PROVIDER_TIMEOUT });
 			const versionInfo = await response.json() as OllamaVersionResponse;
 
 			if (!this._isVersionSupported(versionInfo.version)) {

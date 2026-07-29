@@ -224,7 +224,7 @@ export class PreferencesService extends Disposable implements IPreferencesServic
 			...options,
 			target: ConfigurationTarget.USER_LOCAL,
 		};
-		if (options.query) {
+		if (options.query || options.revealCategory) {
 			options.jsonEditor = false;
 		}
 
@@ -248,6 +248,9 @@ export class PreferencesService extends Disposable implements IPreferencesServic
 			...options,
 			jsonEditor: options.jsonEditor ?? this.shouldOpenJsonByDefault()
 		};
+		if (options.revealCategory) {
+			options.jsonEditor = false;
+		}
 
 		if (options.jsonEditor && options.query && !options.revealSetting) {
 			const query = options.query.trim();
@@ -273,7 +276,7 @@ export class PreferencesService extends Disposable implements IPreferencesServic
 		const input = this.createOrGetCachedSettingsEditor2Input();
 		options = {
 			...options,
-			focusSearch: true
+			focusSearch: options.focusSearch ?? !options.revealCategory
 		};
 		const group = this.getEditorGroupFromOptions(options);
 		return this.editorService.openEditor(input, validateSettingsEditorOptions(options), group);

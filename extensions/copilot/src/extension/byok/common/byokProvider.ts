@@ -78,7 +78,6 @@ export function inferBYOKModelCapabilities(modelId: string, modelData?: unknown)
 	const data = isRecord(modelData) ? modelData : undefined;
 	const architecture = isRecord(data?.architecture) ? data.architecture : undefined;
 	const topProvider = isRecord(data?.top_provider) ? data.top_provider : undefined;
-	const supportedParameters = Array.isArray(data?.supported_parameters) ? data.supported_parameters.filter((value): value is string => typeof value === 'string') : [];
 	const modalities = [
 		...readStringArray(data?.modalities),
 		...readStringArray(data?.input_modalities),
@@ -104,7 +103,7 @@ export function inferBYOKModelCapabilities(modelId: string, modelData?: unknown)
 		inferMaxOutputTokens(lowerId);
 
 	const isNonChatModel = includesAny(lowerId, ['embedding', 'embed', 'whisper', 'tts', 'moderation', 'rerank', 'text-to-speech', 'speech-to-text']);
-	const toolCalling = !isNonChatModel && (supportedParameters.includes('tools') || supportedParameters.includes('tool_choice') || !includesAny(lowerId, ['instruct', 'base']));
+	const toolCalling = !isNonChatModel;
 	const vision = modalities.includes('image') || modalities.includes('multimodal') || includesAny(lowerId, ['vision', 'vl', 'llava', 'pixtral', 'gpt-4o', 'omni', 'gemini', 'claude-3']);
 	const thinking = includesAny(lowerId, ['o1', 'o3', 'o4', 'reasoning', 'deepseek-r1', 'qwen3', 'claude-3.7', 'claude-4', 'gemini-2.5']);
 	const supportsResponses = includesAny(lowerId, ['gpt-4.1', 'gpt-4o', 'gpt-5', 'o1', 'o3', 'o4']);

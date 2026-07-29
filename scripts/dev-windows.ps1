@@ -40,6 +40,11 @@ function Test-NativeDependenciesHealthy {
 	return $true
 }
 
+function Test-ExtensionCompileDependenciesHealthy {
+	& $NodeExe --experimental-strip-types (Join-Path $Root 'build\npm\postinstall.ts') --check-extension-compile-dependencies 2>$null | Out-Null
+	return $LASTEXITCODE -eq 0
+}
+
 function Test-CopilotBundleFresh {
 	$copilotRoot = Join-Path $Root 'extensions\copilot'
 	$bundle = Join-Path $copilotRoot 'dist\extension.js'
@@ -332,9 +337,10 @@ function Ensure-Dependencies {
 	$rootOk = Test-Path (Join-Path $rootModules 'gulp\bin\gulp.js')
 	$buildOk = (Test-Path $buildModules) -or (-not (Test-Path (Join-Path $Root 'build\package.json')))
 	$extOk = (Test-Path $extModules) -or (-not (Test-Path (Join-Path $Root 'extensions\package.json')))
+	$extensionCompileDependenciesOk = Test-ExtensionCompileDependenciesHealthy
 	$electronOk = Test-Path $electronDir
 
-	if ($rootOk -and $buildOk -and $extOk -and $electronOk) {
+	if ($rootOk -and $buildOk -and $extOk -and $extensionCompileDependenciesOk -and $electronOk) {
 		Write-Step 'deps-check'
 		Write-Host 'Dependencies OK.'
 		return
@@ -361,6 +367,23 @@ function Ensure-Dependencies {
 		Write-Step 'npm-ci-extensions'
 		& $NpmCmd ci --prefix (Join-Path $Root 'extensions') --ignore-scripts
 		if ($LASTEXITCODE -ne 0) { throw "npm ci (extensions) failed with exit code $LASTEXITCODE" }
+	}
+
+	if (-not $extensionCompileDependenciesOk) {
+		Write-Step 'npm-ci-extension-compile-dependencies'
+		$previousNpmCommand = $env:npm_command
+		try {
+			$env:npm_command = 'ci --ignore-scripts --no-audit --no-fund'
+			& $NodeExe --experimental-strip-types (Join-Path $Root 'build\npm\postinstall.ts') --install-extension-compile-dependencies
+			if ($LASTEXITCODE -ne 0) { throw "npm ci (extension compile dependencies) failed with exit code $LASTEXITCODE" }
+		} finally {
+			if ($null -eq $previousNpmCommand) {
+				Remove-Item Env:npm_command -ErrorAction SilentlyContinue
+			} else {
+				$env:npm_command = $previousNpmCommand
+			}
+		}
+		if (-not (Test-ExtensionCompileDependenciesHealthy)) { throw 'npm ci (extension compile dependencies) completed, but required packages are missing or stale' }
 	}
 
 	if (-not $electronOk) {

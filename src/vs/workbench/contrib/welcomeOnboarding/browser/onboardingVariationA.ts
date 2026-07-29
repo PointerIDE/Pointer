@@ -3,50 +3,39 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { Disposable, DisposableStore } from '../../../../base/common/lifecycle.js';
-import { Emitter, Event } from '../../../../base/common/event.js';
-import { $, append, addDisposableListener, EventType, clearNode, getActiveWindow } from '../../../../base/browser/dom.js';
-import { isCancellationError } from '../../../../base/common/errors.js';
-import { StopWatch } from '../../../../base/common/stopwatch.js';
-import { URI } from '../../../../base/common/uri.js';
-import { isWindows, isMacintosh, isLinux } from '../../../../base/common/platform.js';
-import { assertDefined } from '../../../../base/common/types.js';
-import { FileAccess } from '../../../../base/common/network.js';
-import { ILayoutService } from '../../../../platform/layout/browser/layoutService.js';
-import { KeyCode } from '../../../../base/common/keyCodes.js';
-import { StandardKeyboardEvent } from '../../../../base/browser/keyboardEvent.js';
-import { localize } from '../../../../nls.js';
-import { Codicon } from '../../../../base/common/codicons.js';
-import { ThemeIcon } from '../../../../base/common/themables.js';
+import { $, addDisposableListener, append, clearNode, EventType, getActiveWindow } from '../../../../base/browser/dom.js';
 import { renderIcon } from '../../../../base/browser/ui/iconLabel/iconLabels.js';
-import { IWorkbenchThemeService } from '../../../services/themes/common/workbenchThemeService.js';
-import { EXTENSION_INSTALL_SKIP_WALKTHROUGH_CONTEXT, IExtensionGalleryService, IExtensionManagementService } from '../../../../platform/extensionManagement/common/extensionManagement.js';
-import { IDefaultAccountService } from '../../../../platform/defaultAccount/common/defaultAccount.js';
+import { StandardKeyboardEvent } from '../../../../base/browser/keyboardEvent.js';
 import { CancellationToken } from '../../../../base/common/cancellation.js';
-import { INotificationService, Severity } from '../../../../platform/notification/common/notification.js';
-import { ConfigurationTarget, IConfigurationService } from '../../../../platform/configuration/common/configuration.js';
-import product from '../../../../platform/product/common/product.js';
-import { IQuickInputService } from '../../../../platform/quickinput/common/quickInput.js';
-import { IFileService } from '../../../../platform/files/common/files.js';
-import { IPathService } from '../../../services/path/common/pathService.js';
-import { ITelemetryService } from '../../../../platform/telemetry/common/telemetry.js';
-import { InstallChatEvent, InstallChatClassification, ChatSetupStrategy } from '../../chat/browser/chatSetup/chatSetup.js';
-import { ICommandService } from '../../../../platform/commands/common/commands.js';
+import { Codicon } from '../../../../base/common/codicons.js';
+import { Emitter, Event } from '../../../../base/common/event.js';
+import { KeyCode } from '../../../../base/common/keyCodes.js';
+import { Disposable, DisposableStore } from '../../../../base/common/lifecycle.js';
+import { localize } from '../../../../nls.js';
 import { IAccessibilityService } from '../../../../platform/accessibility/common/accessibility.js';
+import { ICommandService } from '../../../../platform/commands/common/commands.js';
+import { ConfigurationTarget } from '../../../../platform/configuration/common/configuration.js';
+import { ILayoutService } from '../../../../platform/layout/browser/layoutService.js';
+import product from '../../../../platform/product/common/product.js';
+import { asJson, IRequestService } from '../../../../platform/request/common/request.js';
+import { ITelemetryService } from '../../../../platform/telemetry/common/telemetry.js';
+import { ILanguageModelsService } from '../../chat/common/languageModels.js';
+import { ILanguageModelsConfigurationService } from '../../chat/common/languageModelsConfiguration.js';
+import { IWorkbenchThemeService } from '../../../services/themes/common/workbenchThemeService.js';
+import { IOnboardingService } from '../common/onboardingService.js';
 import {
+	getOnboardingStepSubtitle,
+	getOnboardingStepTitle,
+	IOnboardingThemeOption,
 	OnboardingStepId,
 	ONBOARDING_STEPS,
-	ONBOARDING_AI_PREFERENCE_OPTIONS,
-	AiCollaborationMode,
-	IOnboardingThemeOption,
-	getOnboardingStepTitle,
-	getOnboardingStepSubtitle,
+	POINTER_ONBOARDING_THEMES,
+	TOP_OLLAMA_MODELS,
 } from '../common/onboardingTypes.js';
-import { IOnboardingService, IOnboardingShowOptions } from '../common/onboardingService.js';
 
 type OnboardingStepViewClassification = {
 	owner: 'cwebster-99';
-	comment: 'Tracks which onboarding step is viewed.';
+	comment: 'Tracks which Pointer onboarding step is viewed.';
 	step: { classification: 'SystemMetaData'; purpose: 'FeatureInsight'; comment: 'The step identifier.' };
 	stepNumber: { classification: 'SystemMetaData'; purpose: 'FeatureInsight'; isMeasurement: true; comment: 'The 1-based step index.' };
 };
@@ -58,10 +47,10 @@ type OnboardingStepViewEvent = {
 
 type OnboardingActionClassification = {
 	owner: 'cwebster-99';
-	comment: 'Tracks actions taken on the onboarding wizard.';
+	comment: 'Tracks actions taken in Pointer onboarding.';
 	action: { classification: 'SystemMetaData'; purpose: 'FeatureInsight'; comment: 'The action performed.' };
-	step: { classification: 'SystemMetaData'; purpose: 'FeatureInsight'; comment: 'The step the action was performed on.' };
-	argument: { classification: 'SystemMetaData'; purpose: 'FeatureInsight'; comment: 'Optional context such as theme id, extension id, or provider.' };
+	step: { classification: 'SystemMetaData'; purpose: 'FeatureInsight'; comment: 'The active step.' };
+	argument: { classification: 'SystemMetaData'; purpose: 'FeatureInsight'; comment: 'Optional non-user context.' };
 };
 
 type OnboardingActionEvent = {
@@ -70,1203 +59,1216 @@ type OnboardingActionEvent = {
 	argument: string | undefined;
 };
 
-assertDefined(product.defaultChatAgent, 'Onboarding requires a default chat agent product configuration.');
-const defaultChat = product.defaultChatAgent;
+type LocalProviderId = 'ollama' | 'lmstudio';
+
+interface ILocalProviderDefinition {
+	readonly id: LocalProviderId;
+	readonly name: string;
+	readonly endpoint: string;
+	readonly modelsUrl: string;
+	readonly icon: typeof Codicon.serverEnvironment;
+}
+
+interface IDetectedLocalProvider {
+	readonly definition: ILocalProviderDefinition;
+	readonly available: boolean;
+	readonly models: readonly string[];
+	selected: boolean;
+}
+
+interface IOllamaTagsResponse {
+	readonly models?: readonly { readonly name?: string; readonly model?: string }[];
+}
+
+interface IOpenAIModelsResponse {
+	readonly data?: readonly { readonly id?: string }[];
+}
+
+type ModelRole = 'agent' | 'completion';
+
+interface IModelCatalogEntry {
+	readonly id: string;
+	readonly name: string;
+	readonly providerId: string;
+	readonly providerName: string;
+	readonly category: ModelRole;
+	readonly parameterSize: string;
+	readonly description: string;
+	readonly installed: boolean;
+	readonly downloadable: boolean;
+	readonly contextWindow?: number;
+	readonly supportsTools?: boolean;
+}
+
+const LOCAL_PROVIDER_DEFINITIONS: readonly ILocalProviderDefinition[] = [
+	{
+		id: 'ollama',
+		name: 'Ollama',
+		endpoint: 'http://127.0.0.1:11434',
+		modelsUrl: 'http://127.0.0.1:11434/api/tags',
+		icon: Codicon.serverEnvironment,
+	},
+	{
+		id: 'lmstudio',
+		name: 'LM Studio',
+		endpoint: 'http://127.0.0.1:1234',
+		modelsUrl: 'http://127.0.0.1:1234/v1/models',
+		icon: Codicon.chip,
+	},
+];
 
 /**
- * Variation A — Classic Wizard Modal
- *
- * A centered modal overlay with progress dots, clean step transitions,
- * and polished navigation. Sits on top of the agent sessions welcome
- * tab. When dismissed, the welcome tab is revealed underneath.
- *
- * Steps:
- * 1. Sign In — sessions-style sign-in hero with GitHub Copilot, Google, and Apple options
- * 2. Personalize — Theme selection grid + keymap pills
- * 3. Agent Sessions — Feature cards showcasing AI capabilities
+ * Pointer's first-launch setup: High-end theme selection, hardware-shaped local models,
+ * 1-click model downloading & configuration for Sidebar Agent + Tab Completion.
  */
 export class OnboardingVariationA extends Disposable implements IOnboardingService {
 
 	declare readonly _serviceBrand: undefined;
-
-	private readonly _onDidComplete = this._register(new Emitter<void>());
-	readonly onDidComplete: Event<void> = this._onDidComplete.event;
 
 	private readonly _onDidDismiss = this._register(new Emitter<void>());
 	readonly onDidDismiss: Event<void> = this._onDidDismiss.event;
 
 	private overlay: HTMLElement | undefined;
 	private card: HTMLElement | undefined;
-	private bodyEl: HTMLElement | undefined;
 	private progressContainer: HTMLElement | undefined;
-	private stepLabelEl: HTMLElement | undefined;
-	private titleEl: HTMLElement | undefined;
-	private subtitleEl: HTMLElement | undefined;
-	private contentEl: HTMLElement | undefined;
+	private bodyElement: HTMLElement | undefined;
+	private titleElement: HTMLElement | undefined;
+	private subtitleElement: HTMLElement | undefined;
+	private contentElement: HTMLElement | undefined;
 	private backButton: HTMLButtonElement | undefined;
 	private nextButton: HTMLButtonElement | undefined;
-	private closeButton: HTMLButtonElement | undefined;
-	private footerLeft: HTMLElement | undefined;
-	private _footerSignInBtn: HTMLButtonElement | undefined;
 
-	private currentStepIndex = 0;
 	private readonly steps = ONBOARDING_STEPS;
-	private readonly disposables = this._register(new DisposableStore());
+	private readonly viewDisposables = this._register(new DisposableStore());
 	private readonly stepDisposables = this._register(new DisposableStore());
-	private previouslyFocusedElement: HTMLElement | undefined;
-	private _isShowing = false;
-
-	private readonly footerFocusableElements: HTMLElement[] = [];
 	private readonly stepFocusableElements: HTMLElement[] = [];
+	private readonly footerFocusableElements: HTMLElement[] = [];
+	private currentStepIndex = 0;
 	private selectedThemeId = 'pointer-dark';
-	private selectedKeymapId = 'vscode';
-	private _detectedEditorIds: Set<string> | undefined;
-	private _userSignedIn = false;
-	private _requireSignIn = false;
-	private selectedAiMode: AiCollaborationMode = AiCollaborationMode.Balanced;
+	private detectedProviders: readonly IDetectedLocalProvider[] = [];
+	private configuredProviderIds = new Set<LocalProviderId>();
+	private scanGeneration = 0;
+	private isScanning = false;
+	private isConfiguring = false;
+	private isShowing = false;
+	private previouslyFocusedElement: HTMLElement | undefined;
+
+	private selectedAgentModel = 'qwen2.5-coder:7b';
+	private selectedCompletionModel = 'qwen2.5-coder:1.5b-base';
+	private selectedAgentProviderId = 'ollama';
+	private selectedCompletionProviderId = 'ollama';
+	private customHuggingFaceModel = '';
+	private downloadingModels = new Map<string, { status: string; progress: number }>();
+	private stepDirection: 'forward' | 'backward' | undefined;
+	private readonly downloadProgressElements = new Map<string, { readonly fill: HTMLElement; readonly text: HTMLElement; readonly box: HTMLElement }>();
 
 	constructor(
 		@ILayoutService private readonly layoutService: ILayoutService,
 		@IWorkbenchThemeService private readonly themeService: IWorkbenchThemeService,
-		@IDefaultAccountService private readonly defaultAccountService: IDefaultAccountService,
-		@IExtensionGalleryService private readonly extensionGalleryService: IExtensionGalleryService,
-		@IExtensionManagementService private readonly extensionManagementService: IExtensionManagementService,
-		@IConfigurationService private readonly configurationService: IConfigurationService,
-		@INotificationService private readonly notificationService: INotificationService,
-		@IQuickInputService private readonly quickInputService: IQuickInputService,
-		@IFileService private readonly fileService: IFileService,
-		@IPathService private readonly pathService: IPathService,
+		@IRequestService private readonly requestService: IRequestService,
+		@ILanguageModelsService private readonly languageModelsService: ILanguageModelsService,
+		@ILanguageModelsConfigurationService private readonly languageModelsConfigurationService: ILanguageModelsConfigurationService,
 		@ITelemetryService private readonly telemetryService: ITelemetryService,
 		@ICommandService private readonly commandService: ICommandService,
 		@IAccessibilityService private readonly accessibilityService: IAccessibilityService,
 	) {
 		super();
 
-		// Detect currently active theme
-		const currentTheme = this.themeService.getColorTheme();
-		const allThemes = product.onboardingThemes ?? [];
-		const matchingTheme = allThemes.find(t => t.themeId === currentTheme.settingsId);
-		if (matchingTheme) {
-			this.selectedThemeId = matchingTheme.id;
+		const currentThemeId = this.themeService.getColorTheme().settingsId;
+		const currentTheme = POINTER_ONBOARDING_THEMES.find(theme => theme.themeId === currentThemeId);
+		if (currentTheme) {
+			this.selectedThemeId = currentTheme.id;
 		}
 
-		// Start detecting installed editors early so results are ready by the Personalize step
-		this._detectInstalledEditors().then(ids => { this._detectedEditorIds = ids; });
-
-		this._register(this.defaultAccountService.onDidChangeDefaultAccount(account => {
-			this._userSignedIn = !!account;
-			if (account) {
-				this._requireSignIn = false;
-			}
-			this._updateButtonStates();
-		}));
+		void this.scanLocalProviders();
 	}
 
-	get isShowing(): boolean {
-		return this._isShowing;
-	}
-
-	show(options?: IOnboardingShowOptions): void {
+	show(): void {
 		if (this.overlay) {
-			if (options?.requireSignIn && !this.defaultAccountService.currentDefaultAccount) {
-				this._userSignedIn = false;
-				this._requireSignIn = true;
-				this.currentStepIndex = 0;
-				this._renderStep();
-				this._renderProgress();
-				this._updateButtonStates();
-				this._focusCurrentStepElement();
-			}
+			this.focusCurrentStepElement();
 			return;
 		}
 
-		this._userSignedIn = !!this.defaultAccountService.currentDefaultAccount;
-		this._requireSignIn = !!options?.requireSignIn && !this._userSignedIn;
-		this._isShowing = true;
+		this.isShowing = true;
 		this.previouslyFocusedElement = getActiveWindow().document.activeElement as HTMLElement | undefined;
 
-		const container = this.layoutService.activeContainer;
-
-		// Overlay
-		this.overlay = append(container, $('.onboarding-a-overlay'));
+		this.overlay = append(this.layoutService.activeContainer, $('.onboarding-a-overlay'));
 		this.overlay.setAttribute('role', 'dialog');
 		this.overlay.setAttribute('aria-modal', 'true');
-		this.overlay.setAttribute('aria-label', localize('onboarding.a.aria', "Welcome to Pointer"));
+		this.overlay.setAttribute('aria-label', localize('onboarding.aria', "Set up Pointer"));
 
-		// Card
-		this.card = append(this.overlay, $('.onboarding-a-card'));
+		this.card = append(this.overlay, $('.onboarding-a-card.onboarding-a-card-intro'));
+		const launchMark = append(this.card, $('span.onboarding-a-launch-mark'));
+		launchMark.setAttribute('aria-hidden', 'true');
 
-		// Close button (upper-right corner of card)
-		this.closeButton = append(this.card, $<HTMLButtonElement>('button.onboarding-a-close-btn'));
-		this.closeButton.type = 'button';
-		this.closeButton.setAttribute('aria-label', localize('onboarding.close', "Close"));
-		this.closeButton.appendChild(renderIcon(Codicon.close));
-
-		// Header with progress
 		const header = append(this.card, $('.onboarding-a-header'));
+		const brand = append(header, $('.onboarding-a-brand'));
+		const brandMark = append(brand, $('span.onboarding-a-brand-mark'));
+		brandMark.setAttribute('aria-hidden', 'true');
+		const brandName = append(brand, $('span.onboarding-a-brand-name'));
+		brandName.textContent = product.nameShort;
+
 		this.progressContainer = append(header, $('.onboarding-a-progress'));
-		this.stepLabelEl = append(this.progressContainer, $('span.onboarding-a-step-label'));
-		this._renderProgress();
+		this.progressContainer.setAttribute('role', 'progressbar');
+		this.progressContainer.setAttribute('aria-valuemin', '1');
+		this.progressContainer.setAttribute('aria-valuemax', String(this.steps.length));
 
-		// Body
-		this.bodyEl = append(this.card, $('.onboarding-a-body'));
-		this.titleEl = append(this.bodyEl, $('h2.onboarding-a-step-title'));
-		this.subtitleEl = append(this.bodyEl, $('p.onboarding-a-step-subtitle'));
-		this.contentEl = append(this.bodyEl, $('.onboarding-a-step-content'));
-		this._renderStep();
-		this._logStepView();
+		const body = this.bodyElement = append(this.card, $('.onboarding-a-body'));
+		this.titleElement = append(body, $('h1.onboarding-a-step-title'));
+		this.subtitleElement = append(body, $('p.onboarding-a-step-subtitle'));
+		this.contentElement = append(body, $('.onboarding-a-step-content'));
 
-		// Footer
 		const footer = append(this.card, $('.onboarding-a-footer'));
-
-		this.footerLeft = append(footer, $('.onboarding-a-footer-left'));
-
-		const footerRight = append(footer, $('.onboarding-a-footer-right'));
-
-		this.backButton = append(footerRight, $<HTMLButtonElement>('button.onboarding-a-btn.onboarding-a-btn-secondary'));
-		this.backButton.textContent = localize('onboarding.back', "Back");
+		const footerActions = append(footer, $('.onboarding-a-footer-actions'));
+		this.backButton = append(footerActions, $<HTMLButtonElement>('button.onboarding-a-btn.onboarding-a-btn-secondary'));
 		this.backButton.type = 'button';
-		this.footerFocusableElements.push(this.backButton);
-
-		this.nextButton = append(footerRight, $<HTMLButtonElement>('button.onboarding-a-btn.onboarding-a-btn-primary'));
+		this.backButton.textContent = localize('onboarding.back', "Back");
+		this.nextButton = append(footerActions, $<HTMLButtonElement>('button.onboarding-a-btn.onboarding-a-btn-primary'));
 		this.nextButton.type = 'button';
-		this.footerFocusableElements.push(this.nextButton);
-		this._updateButtonStates();
+		this.footerFocusableElements.push(this.backButton, this.nextButton);
 
-		// Event handlers
-		this.disposables.add(addDisposableListener(this.closeButton, EventType.CLICK, () => {
-			if (this._isDismissBlocked()) {
-				return;
-			}
-			this._logAction('skip');
-			this._dismiss('skip');
-		}));
-		this.disposables.add(addDisposableListener(this.backButton, EventType.CLICK, () => {
-			this._logAction('back');
-			this._prevStep();
-		}));
-		this.disposables.add(addDisposableListener(this.nextButton, EventType.CLICK, () => {
-			if (this._isLastStep()) {
-				this._logAction('complete');
-				this._dismiss('complete');
-			} else if (this.currentStepIndex === 0) {
-				if (this._requireSignIn && !this._userSignedIn) {
-					this._focusCurrentStepElement();
-					return;
-				}
-				this._logAction('continueWithoutSignIn');
-				this._nextStep();
-			} else {
-				this._logAction('next');
-				this._nextStep();
-			}
-		}));
-
-		this.disposables.add(addDisposableListener(this.overlay, EventType.MOUSE_DOWN, (e: MouseEvent) => {
-			if (e.target === this.overlay && !this._isDismissBlocked()) {
-				this._dismiss('skip');
-			}
-		}));
-
-		this.disposables.add(addDisposableListener(this.overlay, EventType.KEY_DOWN, (e: KeyboardEvent) => {
-			const event = new StandardKeyboardEvent(e);
-
-			// Prevent all keyboard shortcuts from reaching the keybinding service
-			e.stopPropagation();
-
-			if (event.keyCode === KeyCode.Escape) {
-				e.preventDefault();
-				if (!this._isDismissBlocked()) {
-					this._dismiss('skip');
-				}
+		this.viewDisposables.add(addDisposableListener(this.backButton, EventType.CLICK, () => this.previousStep()));
+		this.viewDisposables.add(addDisposableListener(this.nextButton, EventType.CLICK, async () => {
+			if (this.isConfiguring) {
 				return;
 			}
 
-			if (event.keyCode === KeyCode.Tab) {
-				this._trapTab(e, event.shiftKey);
+			if (this.isLastStep()) {
+				this.logAction('complete');
+				this.dismiss();
+				return;
+			}
+
+			if (this.steps[this.currentStepIndex] === OnboardingStepId.CompletionModel) {
+				await this.configureSelectedProviders();
+			}
+
+			this.nextStep();
+		}));
+		this.viewDisposables.add(addDisposableListener(this.overlay, EventType.KEY_DOWN, event => {
+			const keyboardEvent = new StandardKeyboardEvent(event);
+			event.stopPropagation();
+			if (keyboardEvent.keyCode === KeyCode.Tab) {
+				this.trapTab(event, keyboardEvent.shiftKey);
 			}
 		}));
+		this.viewDisposables.add(addDisposableListener(body, EventType.MOUSE_WHEEL, (event: WheelEvent) => {
+			if (body.scrollHeight <= body.clientHeight || event.deltaY === 0) {
+				return;
+			}
+			const multiplier = event.deltaMode === WheelEvent.DOM_DELTA_LINE
+				? 16
+				: event.deltaMode === WheelEvent.DOM_DELTA_PAGE
+					? body.clientHeight
+					: 1;
+			body.scrollTop += event.deltaY * multiplier;
+			event.preventDefault();
+			event.stopPropagation();
+		}, { passive: false }));
 
-		// Entrance animation
+		this.renderCurrentStep();
 		this.overlay.classList.add('entering');
 		getActiveWindow().requestAnimationFrame(() => {
-			this.overlay?.classList.remove('entering');
 			this.overlay?.classList.add('visible');
+			getActiveWindow().setTimeout(() => {
+				this.overlay?.classList.remove('entering');
+				this.card?.classList.remove('onboarding-a-card-intro');
+				this.card?.classList.add('onboarding-a-card-ready');
+			}, 420);
 		});
-
-		this._focusCurrentStepElement();
+		this.focusCurrentStepElement();
 	}
 
-	private _isDismissBlocked(): boolean {
-		return this._requireSignIn && !this._userSignedIn;
-	}
-
-	private _dismiss(reason: 'complete' | 'skip'): void {
+	private dismiss(): void {
 		if (!this.overlay) {
 			return;
 		}
 
-		this._logAction('dismiss', undefined, reason);
-
 		this.overlay.classList.remove('visible');
 		this.overlay.classList.add('exiting');
-
-		let handled = false;
-		const onTransitionEnd = () => {
-			if (handled) {
+		let removed = false;
+		const finish = () => {
+			if (removed) {
 				return;
 			}
-			handled = true;
-			this._removeFromDOM();
-			if (reason === 'complete') {
-				this._onDidComplete.fire();
-			}
+			removed = true;
+			this.removeFromDom();
 			this._onDidDismiss.fire();
 		};
-
-		this.overlay.addEventListener('transitionend', onTransitionEnd, { once: true });
-		setTimeout(onTransitionEnd, 400);
+		this.overlay.addEventListener('transitionend', finish, { once: true });
+		getActiveWindow().setTimeout(finish, 240);
 	}
 
-	private _nextStep(): void {
-		if (this.currentStepIndex < this.steps.length - 1) {
-			const leavingStep = this.steps[this.currentStepIndex];
-			if (leavingStep === OnboardingStepId.Personalize) {
-				this._applyKeymap(this.selectedKeymapId);
-			}
-			this.currentStepIndex++;
-			this._renderStep();
-			this._renderProgress();
-			this._updateButtonStates();
-			this._focusCurrentStepElement();
-			this._logStepView();
+	private nextStep(): void {
+		if (this.currentStepIndex >= this.steps.length - 1) {
+			return;
 		}
+		this.currentStepIndex++;
+		this.stepDirection = 'forward';
+		this.logAction('next');
+		this.renderCurrentStep();
+		this.focusCurrentStepElement();
 	}
 
-	private _prevStep(): void {
-		if (this.currentStepIndex > 0) {
-			this.currentStepIndex--;
-			this._renderStep();
-			this._renderProgress();
-			this._updateButtonStates();
-			this._focusCurrentStepElement();
-			this._logStepView();
+	private previousStep(): void {
+		if (this.currentStepIndex === 0) {
+			return;
 		}
+		this.currentStepIndex--;
+		this.stepDirection = 'backward';
+		this.logAction('back');
+		this.renderCurrentStep();
+		this.focusCurrentStepElement();
 	}
 
-	private _isLastStep(): boolean {
+	private isLastStep(): boolean {
 		return this.currentStepIndex === this.steps.length - 1;
 	}
 
-	private _renderProgress(): void {
-		if (!this.progressContainer || !this.stepLabelEl) {
-			return;
-		}
-
-		clearNode(this.progressContainer);
-
-		for (let i = 0; i < this.steps.length; i++) {
-			const dot = append(this.progressContainer, $('span.onboarding-a-progress-dot'));
-			if (i === this.currentStepIndex) {
-				dot.classList.add('active');
-			} else if (i < this.currentStepIndex) {
-				dot.classList.add('completed');
-			}
-		}
-
-		this.progressContainer.appendChild(this.stepLabelEl);
-		this.stepLabelEl.textContent = localize(
-			'onboarding.stepOf',
-			"{0} of {1}",
-			this.currentStepIndex + 1,
-			this.steps.length
-		);
-	}
-
-	private _renderStep(): void {
-		if (!this.titleEl || !this.subtitleEl || !this.contentEl) {
+	private renderCurrentStep(): void {
+		if (!this.progressContainer || !this.titleElement || !this.subtitleElement || !this.contentElement) {
 			return;
 		}
 
 		this.stepDisposables.clear();
 		this.stepFocusableElements.length = 0;
+		this.downloadProgressElements.clear();
+		clearNode(this.progressContainer);
+		clearNode(this.contentElement);
 
-		const stepId = this.steps[this.currentStepIndex];
-		const useSignInHero = stepId === OnboardingStepId.SignIn;
-		this.titleEl.style.display = useSignInHero ? 'none' : '';
-		this.subtitleEl.style.display = useSignInHero ? 'none' : '';
-		this.titleEl.textContent = getOnboardingStepTitle(stepId);
-		if (stepId === OnboardingStepId.AgentSessions) {
-			this._renderAgentSessionsSubtitle(this.subtitleEl);
-		} else if (stepId === OnboardingStepId.Personalize) {
-			this._renderPersonalizeSubtitle(this.subtitleEl);
-		} else {
-			this.subtitleEl.textContent = getOnboardingStepSubtitle(stepId);
+		const currentStepNumber = this.currentStepIndex + 1;
+		this.progressContainer.setAttribute('aria-valuenow', String(currentStepNumber));
+		this.progressContainer.setAttribute('aria-valuetext', localize('onboarding.progressAria', "Step {0} of {1}", currentStepNumber, this.steps.length));
+		const progressLabel = append(this.progressContainer, $('span.onboarding-a-progress-label'));
+		progressLabel.textContent = localize('onboarding.progress', "{0} / {1}", currentStepNumber, this.steps.length);
+		const progressTrack = append(this.progressContainer, $('span.onboarding-a-progress-track'));
+		const progressValue = append(progressTrack, $('span.onboarding-a-progress-value'));
+		progressValue.style.width = `${(currentStepNumber / this.steps.length) * 100}%`;
+
+		const step = this.steps[this.currentStepIndex];
+		this.titleElement.textContent = getOnboardingStepTitle(step);
+		this.subtitleElement.textContent = getOnboardingStepSubtitle(step);
+		this.contentElement.setAttribute('aria-live', step === OnboardingStepId.AgentModel || step === OnboardingStepId.CompletionModel ? 'polite' : 'off');
+		this.bodyElement?.classList.remove('onboarding-a-step-forward', 'onboarding-a-step-backward');
+		if (this.bodyElement && this.stepDirection) {
+			void this.bodyElement.offsetWidth;
+			this.bodyElement.classList.add(this.stepDirection === 'forward' ? 'onboarding-a-step-forward' : 'onboarding-a-step-backward');
+			this.stepDirection = undefined;
 		}
 
-		clearNode(this.contentEl);
-
-		switch (stepId) {
-			case OnboardingStepId.SignIn:
-				this._renderSignInStep(this.contentEl);
+		switch (step) {
+			case OnboardingStepId.Theme:
+				this.renderThemeStep(this.contentElement);
 				break;
-			case OnboardingStepId.Personalize:
-				this._renderPersonalizeStep(this.contentEl);
+			case OnboardingStepId.Runtime:
+				this.renderLocalModelsStep(this.contentElement);
 				break;
-			case OnboardingStepId.AiPreference:
-				this._renderAiPreferenceStep(this.contentEl);
+			case OnboardingStepId.AgentModel:
+				this.renderModelSelectionStep(this.contentElement, 'agent');
 				break;
-			case OnboardingStepId.AgentSessions:
-				this._renderAgentSessionsStep(this.contentEl);
+			case OnboardingStepId.CompletionModel:
+				this.renderModelSelectionStep(this.contentElement, 'completion');
+				break;
+			case OnboardingStepId.Ready:
+				this.renderReadyStep(this.contentElement);
 				break;
 		}
 
-		this.bodyEl?.setAttribute('aria-label', localize(
-			'onboarding.step.aria',
-			"Step {0} of {1}: {2}",
-			this.currentStepIndex + 1,
-			this.steps.length,
-			getOnboardingStepTitle(stepId)
-		));
-	}
-
-	private _updateButtonStates(): void {
-		if (this.closeButton) {
-			this.closeButton.style.display = this._isDismissBlocked() ? 'none' : '';
-		}
 		if (this.backButton) {
 			this.backButton.style.display = this.currentStepIndex === 0 ? 'none' : '';
 		}
 		if (this.nextButton) {
-			if (this.currentStepIndex === 0) {
-				if (this._isDismissBlocked()) {
-					this.nextButton.style.display = 'none';
-				} else {
-					this.nextButton.style.display = '';
-					// Sign-in step: secondary "Continue without Signing In"
-					this.nextButton.className = 'onboarding-a-btn onboarding-a-btn-secondary';
-					this.nextButton.textContent = localize('onboarding.continueWithoutSignIn', "Continue without Signing In");
-				}
-			} else if (this._isLastStep()) {
-				this.nextButton.style.display = '';
-				this.nextButton.className = 'onboarding-a-btn onboarding-a-btn-primary';
-				this.nextButton.textContent = localize('onboarding.getStarted', "Get Started");
-			} else {
-				this.nextButton.style.display = '';
-				this.nextButton.className = 'onboarding-a-btn onboarding-a-btn-primary';
-				this.nextButton.textContent = localize('onboarding.next', "Continue");
-			}
-		}
-		if (this.footerLeft) {
-			if (this._isLastStep()) {
-				// Show sign-in nudge in footer
-				if (!this._footerSignInBtn && !this._userSignedIn) {
-					this._footerSignInBtn = append(this.footerLeft, $<HTMLButtonElement>('button.onboarding-a-signin-nudge-btn'));
-					this._footerSignInBtn.type = 'button';
-					this._footerSignInBtn.textContent = localize('onboarding.sessions.signInNudge', "Sign in for AI Powered Features");
-					this.stepDisposables.add(addDisposableListener(this._footerSignInBtn, EventType.CLICK, async () => {
-						this._logAction('signInNudge');
-						await this._handleSignIn();
-						if (this._userSignedIn && this._footerSignInBtn) {
-							this._footerSignInBtn.style.display = 'none';
-						}
-					}));
-				}
-			} else {
-				if (this._footerSignInBtn) {
-					this._footerSignInBtn.remove();
-					this._footerSignInBtn = undefined;
-				}
-			}
-		}
-	}
-
-	// =====================================================================
-	// Step: Sign In
-	// =====================================================================
-
-	private _renderSignInStep(container: HTMLElement): void {
-		const wrapper = append(container, $('.onboarding-a-signin'));
-		const brand = append(wrapper, $('.onboarding-a-signin-brand'));
-		const brandIcon = append(brand, $('span.onboarding-a-signin-brand-icon'));
-		brandIcon.setAttribute('role', 'img');
-		brandIcon.setAttribute('aria-label', product.nameLong);
-
-		const content = append(wrapper, $('.onboarding-a-signin-content'));
-		const contentMain = append(content, $('.onboarding-a-signin-content-main'));
-		const title = append(contentMain, $('h2.onboarding-a-signin-title'));
-		title.textContent = localize('onboarding.signIn.heroTitle', "Welcome to Pointer");
-
-		const subtitle = append(contentMain, $('p.onboarding-a-signin-subtitle'));
-		subtitle.textContent = localize('onboarding.signIn.heroSubtitle', "Sign in to continue with AI-powered development.");
-
-		const actions = append(contentMain, $('.onboarding-a-signin-actions'));
-
-		const githubBtn = this._registerStepFocusable(this._createSignInButton(actions, 'github', localize('onboarding.signIn.github', "Continue with GitHub"), {
-			emphasized: true,
-			label: localize('onboarding.signIn.github.aria', "Continue with GitHub")
-		}));
-		this.stepDisposables.add(addDisposableListener(githubBtn, EventType.CLICK, () => {
-			this._logAction('signIn', undefined, 'github');
-			this._handleSignIn();
-		}));
-
-		const googleBtn = this._registerStepFocusable(this._createSignInButton(actions, 'google', localize('onboarding.signIn.google', "Continue with Google"), {
-			iconOnly: true,
-			label: localize('onboarding.signIn.google', "Continue with Google")
-		}));
-		this.stepDisposables.add(addDisposableListener(googleBtn, EventType.CLICK, () => {
-			this._logAction('signIn', undefined, 'google');
-			this._handleSignIn('google');
-		}));
-
-		const appleBtn = this._registerStepFocusable(this._createSignInButton(actions, 'apple', localize('onboarding.signIn.apple', "Continue with Apple"), {
-			iconOnly: true,
-			label: localize('onboarding.signIn.apple', "Continue with Apple")
-		}));
-		this.stepDisposables.add(addDisposableListener(appleBtn, EventType.CLICK, () => {
-			this._logAction('signIn', undefined, 'apple');
-			this._handleSignIn('apple');
-		}));
-
-		const gheBtn = this._registerStepFocusable(this._createSignInButton(actions, 'github-enterprise', localize('onboarding.signIn.ghe', "GHE"), {
-			textOnly: true,
-			label: localize('onboarding.signIn.ghe.aria', "Continue with GitHub Enterprise")
-		}));
-		this.stepDisposables.add(addDisposableListener(gheBtn, EventType.CLICK, () => {
-			this._logAction('signIn', undefined, 'github-enterprise');
-			this._handleEnterpriseSignIn();
-		}));
-
-		const footer = append(wrapper, $('.onboarding-a-signin-footer'));
-
-		const disclaimerCol = append(footer, $('.onboarding-a-signin-disclaimer-col'));
-
-		// GitHub Copilot disclaimer
-		const copilotDisclaimer = append(disclaimerCol, $('.onboarding-a-signin-disclaimer'));
-		copilotDisclaimer.append(localize('onboarding.signIn.disclaimer.prefix', "By signing in, you agree to {0}'s ", defaultChat.provider.default.name));
-		this._createInlineLink(copilotDisclaimer, localize('onboarding.signIn.disclaimer.terms', "Terms"), defaultChat.termsStatementUrl);
-		copilotDisclaimer.append(localize('onboarding.signIn.disclaimer.middle', " and "));
-		this._createInlineLink(copilotDisclaimer, localize('onboarding.signIn.disclaimer.privacy', "Privacy Statement"), defaultChat.privacyStatementUrl);
-		copilotDisclaimer.append(localize('onboarding.signIn.disclaimer.copilotPrefix', ". {0} Copilot may show ", defaultChat.provider.default.name));
-		this._createInlineLink(copilotDisclaimer, localize('onboarding.signIn.disclaimer.publicCode', "public code"), defaultChat.publicCodeMatchesUrl);
-		copilotDisclaimer.append(localize('onboarding.signIn.disclaimer.improveSuffix', " suggestions and use your data to improve the product."));
-		copilotDisclaimer.append(' ');
-		copilotDisclaimer.append(localize('onboarding.signIn.disclaimer.settingsPrefix', "You can change these "));
-		this._createInlineLink(copilotDisclaimer, localize('onboarding.signIn.disclaimer.settings', "settings"), defaultChat.manageSettingsUrl);
-		copilotDisclaimer.append(localize('onboarding.signIn.disclaimer.suffix', " anytime."));
-	}
-
-	private _createSignInButton(parent: HTMLElement, providerClass: 'github' | 'github-enterprise' | 'google' | 'apple', label: string, options?: { emphasized?: boolean; iconOnly?: boolean; textOnly?: boolean; label?: string }): HTMLButtonElement {
-		const isCompact = options?.iconOnly || options?.textOnly;
-		const btn = append(parent, $<HTMLButtonElement>(isCompact ? 'button.onboarding-a-signin-icon-btn' : 'button.onboarding-a-signin-btn'));
-		btn.type = 'button';
-		btn.title = options?.label ?? label;
-		btn.setAttribute('aria-label', options?.label ?? label);
-		if (options?.emphasized) {
-			btn.classList.add('primary');
+			this.nextButton.textContent = this.isLastStep()
+				? localize('onboarding.start', "Start using Pointer")
+				: localize('onboarding.continue', "Continue");
+			this.nextButton.disabled = false;
 		}
 
-		if (!options?.textOnly) {
-			const mark = append(btn, $('span.onboarding-a-provider-mark'));
-			mark.classList.add(providerClass);
-			mark.setAttribute('aria-hidden', 'true');
-			if (providerClass === 'github' || providerClass === 'github-enterprise') {
-				mark.appendChild(renderIcon(Codicon.github));
-			}
-		}
-
-		if (!options?.iconOnly) {
-			const labelEl = append(btn, $('span.onboarding-a-signin-btn-label'));
-			labelEl.textContent = label;
-		}
-
-		return btn;
-	}
-
-	private async _handleSignIn(socialProvider?: string): Promise<void> {
-		const provider = socialProvider ?? 'github';
-		const watch = StopWatch.create();
-		try {
-			const account = await this.defaultAccountService.signIn({
-				extraAuthorizeParameters: { get_started_with: 'copilot-vscode' },
-				provider: socialProvider,
-			});
-			if (account) {
-				this._userSignedIn = true;
-				this.telemetryService.publicLog2<InstallChatEvent, InstallChatClassification>('commandCenter.chatInstall', { installResult: 'installed', installDuration: watch.elapsed(), signUpErrorCode: undefined, provider });
-				// Run chat setup in the background (sign-up, extension install, entitlement resolution)
-				this.commandService.executeCommand('workbench.action.chat.triggerSetup', undefined, {
-					disableChatViewReveal: true,
-					setupStrategy: ChatSetupStrategy.DefaultSetup,
-				});
-				this._nextStep();
-			}
-		} catch (error) {
-			if (isCancellationError(error)) {
-				this.telemetryService.publicLog2<InstallChatEvent, InstallChatClassification>('commandCenter.chatInstall', { installResult: 'cancelled', installDuration: watch.elapsed(), signUpErrorCode: undefined, provider });
-				return;
-			}
-
-			this.telemetryService.publicLog2<InstallChatEvent, InstallChatClassification>('commandCenter.chatInstall', { installResult: 'failedNotSignedIn', installDuration: watch.elapsed(), signUpErrorCode: undefined, provider });
-			this.notificationService.notify({
-				severity: Severity.Error,
-				message: localize('onboarding.signIn.error', "Sign-in failed. You can try again later from the Accounts menu."),
-			});
-		}
-	}
-
-	private async _handleEnterpriseSignIn(): Promise<void> {
-		const watch = StopWatch.create();
-		try {
-			const configured = await this._ensureEnterpriseInstance();
-			if (!configured) {
-				return;
-			}
-
-			const provider = defaultChat.provider.enterprise.id;
-			const account = await this.defaultAccountService.signIn({
-				extraAuthorizeParameters: { get_started_with: 'copilot-vscode' },
-			});
-			if (account) {
-				this._userSignedIn = true;
-				this.telemetryService.publicLog2<InstallChatEvent, InstallChatClassification>('commandCenter.chatInstall', { installResult: 'installed', installDuration: watch.elapsed(), signUpErrorCode: undefined, provider });
-				this.commandService.executeCommand('workbench.action.chat.triggerSetup', undefined, {
-					disableChatViewReveal: true,
-					setupStrategy: ChatSetupStrategy.DefaultSetup,
-				});
-				this._nextStep();
-			}
-		} catch (error) {
-			if (isCancellationError(error)) {
-				this.telemetryService.publicLog2<InstallChatEvent, InstallChatClassification>('commandCenter.chatInstall', { installResult: 'cancelled', installDuration: watch.elapsed(), signUpErrorCode: undefined, provider: defaultChat.provider.enterprise.id });
-				return;
-			}
-
-			this.telemetryService.publicLog2<InstallChatEvent, InstallChatClassification>('commandCenter.chatInstall', { installResult: 'failedNotSignedIn', installDuration: watch.elapsed(), signUpErrorCode: undefined, provider: defaultChat.provider.enterprise.id });
-			this.notificationService.notify({
-				severity: Severity.Error,
-				message: localize('onboarding.signIn.enterprise.error', "GitHub Enterprise sign-in failed. Check your instance URL and try again."),
-			});
-		}
-	}
-
-	private async _ensureEnterpriseInstance(): Promise<boolean> {
-		const domainRegEx = /^[a-zA-Z\-_]+$/;
-		const fullUriRegEx = /^(https:\/\/)?([a-zA-Z0-9-]+\.)*[a-zA-Z0-9-]+\.ghe\.com\/?$/;
-
-		const uri = this.configurationService.getValue<string>(defaultChat.providerUriSetting);
-		if (typeof uri === 'string' && fullUriRegEx.test(uri)) {
-			return true;
-		}
-
-		let isSingleWord = false;
-		const result = await this.quickInputService.input({
-			prompt: localize('onboarding.signIn.enterprise.prompt', "What is your {0} instance?", defaultChat.provider.enterprise.name),
-			placeHolder: localize('onboarding.signIn.enterprise.placeholder', 'i.e. "octocat" or "https://octocat.ghe.com"...'),
-			ignoreFocusLost: true,
-			value: uri,
-			validateInput: async value => {
-				isSingleWord = false;
-				if (!value) {
-					return undefined;
-				}
-
-				if (domainRegEx.test(value)) {
-					isSingleWord = true;
-					return {
-						content: localize('onboarding.signIn.enterprise.resolve', "Will resolve to {0}", `https://${value}.ghe.com`),
-						severity: Severity.Info
-					};
-				}
-
-				if (!fullUriRegEx.test(value)) {
-					return {
-						content: localize('onboarding.signIn.enterprise.invalid', 'You must enter a valid {0} instance (i.e. "octocat" or "https://octocat.ghe.com")', defaultChat.provider.enterprise.name),
-						severity: Severity.Error
-					};
-				}
-
-				return undefined;
-			}
-		});
-
-		if (!result) {
-			return false;
-		}
-
-		let resolvedUri = result;
-		if (isSingleWord) {
-			resolvedUri = `https://${resolvedUri}.ghe.com`;
-		} else if (!result.toLowerCase().startsWith('https://')) {
-			resolvedUri = `https://${result}`;
-		}
-
-		await this.configurationService.updateValue(defaultChat.providerUriSetting, resolvedUri, ConfigurationTarget.USER);
-		return true;
-	}
-
-	// =====================================================================
-	// Step: Personalize (Theme + Keymap)
-	// =====================================================================
-
-	private _renderPersonalizeStep(container: HTMLElement): void {
-		const wrapper = append(container, $('.onboarding-a-personalize'));
-
-		// Theme section
-		const themeLabel = append(wrapper, $('div.onboarding-a-section-label'));
-		themeLabel.textContent = localize('onboarding.personalize.theme', "Color Theme");
-
-		const themeHint = append(wrapper, $('div.onboarding-a-theme-hint'));
-		themeHint.textContent = localize('onboarding.personalize.themeHint', "You can browse and install more themes later from the Extensions view.");
-
-		const themeGrid = append(wrapper, $('.onboarding-a-theme-grid'));
-		themeGrid.setAttribute('role', 'radiogroup');
-		themeGrid.setAttribute('aria-label', localize('onboarding.personalize.themeLabel', "Choose a color theme"));
-
-		const hasOtherEditors = this._hasOtherEditors();
-		const allThemes = product.onboardingThemes ?? [];
-		// When other editors are detected, show a compact set (exclude solarized variants).
-		const themes: readonly IOnboardingThemeOption[] = hasOtherEditors
-			? allThemes.filter(t => !t.id.startsWith('solarized'))
-			: allThemes;
-
-		if (!hasOtherEditors) {
-			themeGrid.classList.add('theme-grid-expanded');
-		}
-
-		const themeCards: HTMLElement[] = [];
-		for (const theme of themes) {
-			this._createThemeCard(themeGrid, theme, themeCards);
-		}
-		// Make all theme cards individually tabbable
-		for (const card of themeCards) {
-			card.setAttribute('tabindex', '0');
-		}
-
-		// Keyboard Mapping section — only shown when another editor is detected
-		const keymapOptions = this._detectedEditorIds
-			? (product.onboardingKeymaps ?? []).filter(k => this._detectedEditorIds!.has(k.id))
-			: [];
-
-		if (hasOtherEditors) {
-			const keymapLabel = append(wrapper, $('div.onboarding-a-section-label.onboarding-a-section-label-keymap'));
-			keymapLabel.textContent = localize('onboarding.personalize.keymap', "Keyboard Mapping");
-
-			const keymapHint = append(wrapper, $('div.onboarding-a-theme-hint'));
-			keymapHint.textContent = localize('onboarding.personalize.keymapHint', "Coming from another editor? Import your keyboard mapping to feel right at home.");
-
-			const keymapList = append(wrapper, $('.onboarding-a-keymap-list'));
-			keymapList.setAttribute('role', 'radiogroup');
-			keymapList.setAttribute('aria-label', localize('onboarding.personalize.keymapLabel', "Choose a keyboard mapping"));
-
-			const keymapPills: HTMLButtonElement[] = [];
-			for (const keymap of keymapOptions) {
-				const pill = this._registerStepFocusable(append(keymapList, $<HTMLButtonElement>('button.onboarding-a-keymap-pill')));
-				pill.type = 'button';
-				pill.setAttribute('role', 'radio');
-				pill.setAttribute('aria-checked', keymap.id === this.selectedKeymapId ? 'true' : 'false');
-				pill.title = keymap.description;
-				keymapPills.push(pill);
-
-				const labelSpan = append(pill, $('span'));
-				labelSpan.textContent = keymap.label;
-
-				if (keymap.id === this.selectedKeymapId) {
-					pill.classList.add('selected');
-				}
-
-				this.stepDisposables.add(addDisposableListener(pill, EventType.CLICK, () => {
-					this._logAction('selectKeymap', undefined, keymap.id);
-					this.selectedKeymapId = keymap.id;
-
-					for (const p of keymapPills) {
-						p.classList.remove('selected');
-						p.setAttribute('aria-checked', 'false');
-					}
-					pill.classList.add('selected');
-					pill.setAttribute('aria-checked', 'true');
-					this.accessibilityService.alert(localize('onboarding.keymap.selected.alert', "{0} keyboard mapping selected", keymap.label));
-				}));
-			}
-			const selectedKeymapIndex = keymapOptions.findIndex(k => k.id === this.selectedKeymapId);
-			this._setupRadioGroupNavigation(keymapPills, Math.max(0, selectedKeymapIndex));
-		}
-
-	}
-
-	private _renderPersonalizeSubtitle(container: HTMLElement): void {
-		clearNode(container);
-		const modifier = isMacintosh ? 'Cmd' : 'Ctrl';
-		container.append(
-			localize('onboarding.personalize.tip.prefix', "Tip: Press "),
-			this._createKbd(localize({ key: 'onboarding.personalize.tip.modifier', comment: ['This is a keyboard modifier key, Ctrl on Windows/Linux or Cmd on Mac'] }, "{0}", modifier)),
-			'+',
-			this._createKbd(localize('onboarding.personalize.tip.shift', "Shift")),
-			'+',
-			this._createKbd(localize('onboarding.personalize.tip.p', "P")),
-			localize('onboarding.personalize.tip.suffix', " to access all Pointer commands."),
-		);
-	}
-
-	private _createThemeCard(parent: HTMLElement, theme: IOnboardingThemeOption, allCards: HTMLElement[]): void {
-		const card = this._registerStepFocusable(append(parent, $('div.onboarding-a-theme-card')));
-		allCards.push(card);
-		card.setAttribute('role', 'radio');
-		card.setAttribute('aria-checked', theme.id === this.selectedThemeId ? 'true' : 'false');
-		card.setAttribute('aria-label', theme.label);
-
-		if (theme.id === this.selectedThemeId) {
-			card.classList.add('selected');
-		}
-
-		// SVG preview image
-		const preview = append(card, $('div.onboarding-a-theme-preview'));
-		const img = append(preview, $<HTMLImageElement>('img.onboarding-a-theme-preview-img'));
-		img.alt = '';
-		img.src = FileAccess.asBrowserUri(`vs/workbench/contrib/welcomeOnboarding/browser/media/theme-preview-${theme.id}.svg`).toString(true);
-
-		// Label
-		const label = append(card, $('div.onboarding-a-theme-label'));
-		label.textContent = theme.label;
-
-		this.stepDisposables.add(addDisposableListener(card, EventType.CLICK, () => {
-			this._logAction('selectTheme', undefined, theme.id);
-			this._selectTheme(theme);
-			for (const c of allCards) {
-				c.classList.remove('selected');
-				c.setAttribute('aria-checked', 'false');
-			}
-			card.classList.add('selected');
-			card.setAttribute('aria-checked', 'true');
-			this.accessibilityService.alert(localize('onboarding.theme.selected.alert', "{0} theme selected", theme.label));
-		}));
-
-		this.stepDisposables.add(addDisposableListener(card, EventType.KEY_DOWN, (e: KeyboardEvent) => {
-			if (e.key === 'Enter' || e.key === ' ') {
-				e.preventDefault();
-				card.click();
-			}
-		}));
-	}
-
-	// =====================================================================
-	// Theme / Keymap helpers
-	// =====================================================================
-
-	private async _selectTheme(theme: IOnboardingThemeOption): Promise<void> {
-		this.selectedThemeId = theme.id;
-		const allThemes = await this.themeService.getColorThemes();
-		const match = allThemes.find(t => t.settingsId === theme.themeId);
-		if (match) {
-			this.themeService.setColorTheme(match.id, ConfigurationTarget.USER);
-		}
-	}
-
-	private async _applyKeymap(keymapId: string): Promise<void> {
-		const keymap = (product.onboardingKeymaps ?? []).find(k => k.id === keymapId);
-		if (!keymap?.extensionId) {
-			return; // Pointer default, nothing to install
-		}
-
-		try {
-			const gallery = await this.extensionGalleryService.getExtensions([{ id: keymap.extensionId }], CancellationToken.None);
-			if (gallery.length > 0) {
-				await this.extensionManagementService.installFromGallery(gallery[0], { context: { [EXTENSION_INSTALL_SKIP_WALKTHROUGH_CONTEXT]: true } });
-			}
-		} catch {
-			this.notificationService.notify({
-				severity: Severity.Warning,
-				message: localize('onboarding.keymap.installError', "Could not install {0} keymap. You can install it later from Extensions.", keymap.label),
-			});
-		}
-	}
-
-	private _hasOtherEditors(): boolean {
-		const keymapOptions = this._detectedEditorIds
-			? (product.onboardingKeymaps ?? []).filter(k => this._detectedEditorIds!.has(k.id))
-			: [];
-		return keymapOptions.some(k => k.id !== 'vscode');
-	}
-
-	/**
-	 * Checks common install paths for known editors and returns the set of
-	 * keymap option IDs whose editors are found on this machine.
-	 * Always includes 'vscode' (the default). In web environments or on
-	 * unknown platforms, returns only 'vscode'.
-	 */
-	private async _detectInstalledEditors(): Promise<Set<string>> {
-		const detected = new Set<string>(['vscode']);
-		const home = this.pathService.userHome({ preferLocal: true });
-
-		interface EditorCheck { id: string; paths: URI[] }
-		const checks: EditorCheck[] = [];
-
-		if (isWindows) {
-			const localAppData = URI.joinPath(home, 'AppData', 'Local');
-			checks.push(
-				{ id: 'sublime', paths: [URI.file('C:\\Program Files\\Sublime Text\\sublime_text.exe'), URI.file('C:\\Program Files\\Sublime Text 3\\sublime_text.exe')] },
-				{ id: 'intellij', paths: [URI.joinPath(localAppData, 'JetBrains', 'Toolbox')] },
-				{ id: 'vim', paths: [URI.joinPath(home, '_vimrc'), URI.joinPath(localAppData, 'nvim', 'init.vim'), URI.joinPath(localAppData, 'nvim', 'init.lua')] },
-				{ id: 'eclipse', paths: [URI.file('C:\\Program Files\\Eclipse\\eclipse.exe'), URI.file('C:\\Program Files\\eclipse\\eclipse.exe')] },
-				{ id: 'notepadpp', paths: [URI.file('C:\\Program Files\\Notepad++\\notepad++.exe'), URI.file('C:\\Program Files (x86)\\Notepad++\\notepad++.exe')] },
-			);
-		} else if (isMacintosh) {
-			checks.push(
-				{ id: 'sublime', paths: [URI.file('/Applications/Sublime Text.app')] },
-				{ id: 'intellij', paths: [URI.file('/Applications/IntelliJ IDEA.app'), URI.file('/Applications/IntelliJ IDEA CE.app')] },
-				{ id: 'vim', paths: [URI.joinPath(home, '.vimrc'), URI.joinPath(home, '.config', 'nvim', 'init.vim'), URI.joinPath(home, '.config', 'nvim', 'init.lua')] },
-				{ id: 'eclipse', paths: [URI.file('/Applications/Eclipse.app'), URI.file('/Applications/Eclipse IDE.app')] },
-				{ id: 'notepadpp', paths: [URI.file('/Applications/Notepad++.app')] },
-			);
-		} else if (isLinux) {
-			checks.push(
-				{ id: 'sublime', paths: [URI.file('/usr/bin/subl'), URI.file('/opt/sublime_text/sublime_text')] },
-				{ id: 'intellij', paths: [URI.joinPath(home, '.local', 'share', 'JetBrains', 'Toolbox'), URI.file('/opt/idea')] },
-				{ id: 'vim', paths: [URI.joinPath(home, '.vimrc'), URI.joinPath(home, '.config', 'nvim', 'init.vim'), URI.joinPath(home, '.config', 'nvim', 'init.lua')] },
-				{ id: 'eclipse', paths: [URI.file('/usr/bin/eclipse'), URI.file('/opt/eclipse/eclipse'), URI.joinPath(home, 'eclipse', 'eclipse')] },
-				{ id: 'notepadpp', paths: [URI.file('/usr/bin/notepadqq'), URI.file('/snap/notepad-plus-plus/current')] },
-			);
-		}
-
-		await Promise.all(checks.map(async check => {
-			for (const path of check.paths) {
-				try {
-					if (await this.fileService.exists(path)) {
-						detected.add(check.id);
-						return;
-					}
-				} catch {
-					// Path not accessible — skip
-				}
-			}
-		}));
-
-		return detected;
-	}
-
-	// =====================================================================
-	// Step: AI Preference
-	// =====================================================================
-
-	private _renderAiPreferenceStep(container: HTMLElement): void {
-		const wrapper = append(container, $('.onboarding-a-ai-pref'));
-
-		const cards = append(wrapper, $('.onboarding-a-ai-pref-cards'));
-		cards.setAttribute('role', 'radiogroup');
-		cards.setAttribute('aria-label', localize('onboarding.aiPref.label', "Choose your AI collaboration style"));
-
-		const allCards: HTMLButtonElement[] = [];
-		for (const option of ONBOARDING_AI_PREFERENCE_OPTIONS) {
-			const card = this._registerStepFocusable(append(cards, $<HTMLButtonElement>('button.onboarding-a-ai-pref-card')));
-			card.type = 'button';
-			card.dataset.id = option.id;
-			card.setAttribute('role', 'radio');
-			card.setAttribute('aria-checked', option.id === this.selectedAiMode ? 'true' : 'false');
-			allCards.push(card);
-
-			if (option.id === this.selectedAiMode) {
-				card.classList.add('selected');
-			}
-
-			const iconEl = append(card, $('span.onboarding-a-ai-pref-card-icon'));
-			iconEl.setAttribute('aria-hidden', 'true');
-			const icon = Codicon[option.icon as keyof typeof Codicon] ?? Codicon.sparkle;
-			iconEl.appendChild(renderIcon(icon));
-
-			const titleEl = append(card, $('div.onboarding-a-ai-pref-card-title'));
-			titleEl.textContent = option.label;
-
-			const descEl = append(card, $('div.onboarding-a-ai-pref-card-desc'));
-			descEl.textContent = option.description;
-
-			this.stepDisposables.add(addDisposableListener(card, EventType.CLICK, () => {
-				this._logAction('selectAiMode', undefined, option.id);
-				this.selectedAiMode = option.id;
-				for (const c of allCards) {
-					c.classList.toggle('selected', c.dataset.id === option.id);
-					c.setAttribute('aria-checked', c.dataset.id === option.id ? 'true' : 'false');
-				}
-				this._applyAiPreference(option.id);
-				this.accessibilityService.alert(localize('onboarding.aiPref.selected.alert', "{0} selected", option.label));
-			}));
-		}
-		const selectedAiIndex = ONBOARDING_AI_PREFERENCE_OPTIONS.findIndex(o => o.id === this.selectedAiMode);
-		this._setupRadioGroupNavigation(allCards, Math.max(0, selectedAiIndex));
-
-		const hint = append(wrapper, $('div.onboarding-a-ai-pref-hint'));
-		hint.textContent = localize('onboarding.aiPref.hint', "You can change this anytime in Settings.");
-	}
-
-	private _applyAiPreference(mode: AiCollaborationMode): void {
-		switch (mode) {
-			case AiCollaborationMode.CodeFirst:
-				this.configurationService.updateValue('chat.agent.autoFix', false, ConfigurationTarget.USER);
-				break;
-			case AiCollaborationMode.Balanced:
-				this.configurationService.updateValue('chat.agent.autoFix', true, ConfigurationTarget.USER);
-				break;
-			case AiCollaborationMode.AgentForward:
-				this.configurationService.updateValue('chat.agent.autoFix', true, ConfigurationTarget.USER);
-				break;
-		}
-	}
-
-	// =====================================================================
-	// Step: Agent Sessions
-	// =====================================================================
-
-	private _renderAgentSessionsSubtitle(el: HTMLElement): void {
-		clearNode(el);
-		const keys = isMacintosh
-			? ['\u2318', '\u2303', 'I']  // Cmd+Control+I
-			: ['Ctrl', 'Alt', 'I'];
-		const shortcut = keys.map(k => this._createKbd(k));
-		el.append(localize('onboarding.step.agentSessions.subtitle.before', "Open Chat anytime with "));
-		for (let i = 0; i < shortcut.length; i++) {
-			if (i > 0) {
-				el.append('+');
-			}
-			el.append(shortcut[i]);
-		}
-	}
-
-	private _renderAgentSessionsStep(container: HTMLElement): void {
-		const wrapper = append(container, $('.onboarding-a-sessions'));
-
-		const features = append(wrapper, $('.onboarding-a-sessions-features'));
-
-		// Group 1: Chat modes — Plan / Agent
-		const chatGroup = append(features, $('.onboarding-a-sessions-group'));
-		const chatLabel = append(chatGroup, $('div.onboarding-a-sessions-group-label'));
-		chatLabel.textContent = localize('onboarding.sessions.group.chat', "Choose Your Agent");
-		const chatGrid = append(chatGroup, $('.onboarding-a-sessions-grid.onboarding-a-sessions-grid-2'));
-
-		this._createFeatureCard(chatGrid, Codicon.listOrdered,
-			localize('onboarding.sessions.planMode', "Plan"),
-			localize('onboarding.sessions.planMode.desc', "Produce a structured implementation plan before any code changes, then hand it off to an implementation agent to execute."));
-
-		this._createFeatureCard(chatGrid, Codicon.commentDiscussion,
-			localize('onboarding.sessions.agentMode', "Agent"),
-			localize('onboarding.sessions.agentMode.desc', "Describe a goal. The agent plans the approach, edits files, runs commands, and self-corrects. You review and approve along the way."));
-
-		// Group 2: ways to run and customize agents beyond the default Chat experience
-		const moreGroup = append(features, $('.onboarding-a-sessions-group'));
-		const moreLabel = append(moreGroup, $('div.onboarding-a-sessions-group-label'));
-		moreLabel.textContent = localize('onboarding.sessions.group.more', "Agents That Work Your Way");
-		const moreGrid = append(moreGroup, $('.onboarding-a-sessions-grid.onboarding-a-sessions-grid-2'));
-
-		this._createFeatureCard(moreGrid, Codicon.rocket,
-			localize('onboarding.sessions.runAnywhere', "Run Agents Anywhere"),
-			localize('onboarding.sessions.runAnywhere.desc', "Run agents locally for interactive work, in the background with Copilot CLI, or in the cloud with cloud agents that open a pull request your team can review."));
-
-		this._createFeatureCard(moreGrid, Codicon.settingsGear,
-			localize('onboarding.sessions.customize', "Customize Your Agents"),
-			localize('onboarding.sessions.customize.desc', "Tailor Copilot to your project with custom instructions and agents, skills, reusable prompts, and MCP servers that connect to the tools and context you rely on."));
-
-		// Tutorial link at bottom of content, above footer
-		const docsRow = append(wrapper, $('.onboarding-a-sessions-docs'));
-		this._createDocLink(docsRow, localize('onboarding.sessions.agentsTutorial', "Agents tutorial"), 'https://code.visualstudio.com/docs/copilot/agents/agents-tutorial', 'agentsTutorial');
-	}
-
-	private _createFeatureCard(parent: HTMLElement, icon: ThemeIcon, title: string, description?: string): HTMLElement {
-		const card = this._registerStepFocusable(append(parent, $('div.onboarding-a-feature-card')));
-		card.setAttribute('tabindex', '0');
-		card.setAttribute('role', 'group');
-		card.setAttribute('aria-label', title);
-		const iconCol = append(card, $('div.onboarding-a-feature-icon'));
-		iconCol.appendChild(renderIcon(icon));
-		const textCol = append(card, $('div.onboarding-a-feature-text'));
-		const titleEl = append(textCol, $('div.onboarding-a-feature-title'));
-		titleEl.textContent = title;
-		const descEl = append(textCol, $('div.onboarding-a-feature-desc'));
-		if (description) {
-			descEl.textContent = description;
-		}
-		return descEl;
-	}
-
-	private _createKbd(label: string): HTMLElement {
-		const kbd = $('kbd.onboarding-a-kbd');
-		kbd.textContent = label;
-		return kbd;
-	}
-
-	private _createDocLink(parent: HTMLElement, label: string, href: string, linkId?: string): void {
-		const link = this._registerStepFocusable(append(parent, $<HTMLAnchorElement>('a.onboarding-a-doc-link')));
-		link.textContent = label;
-		link.href = href;
-		link.target = '_blank';
-		link.rel = 'noopener';
-		link.prepend(renderIcon(Codicon.linkExternal));
-		if (linkId) {
-			this.stepDisposables.add(addDisposableListener(link, EventType.CLICK, () => {
-				this._logAction('docLinkClick', undefined, linkId);
-			}));
-		}
-	}
-
-	private _createInlineLink(parent: HTMLElement, label: string, href: string): HTMLAnchorElement {
-		const link = this._registerStepFocusable(append(parent, $<HTMLAnchorElement>('a.onboarding-a-inline-link')));
-		link.textContent = label;
-		link.href = href;
-		link.target = '_blank';
-		link.rel = 'noopener';
-		return link;
-	}
-
-	// =====================================================================
-	// Radio-group keyboard navigation (roving tabindex)
-	// =====================================================================
-
-	/**
-	 * Sets up WAI-ARIA radio-group keyboard navigation on a set of elements:
-	 * - Arrow keys move focus between items (with wrap-around)
-	 * - Only the focused item has tabindex=0; the rest have tabindex=-1
-	 * - Space/Enter on a focused item fires its click handler
-	 */
-	private _setupRadioGroupNavigation(items: HTMLElement[], selectedIndex: number): void {
-		// Initialise roving tabindex: only the selected item is tab-reachable
-		for (let i = 0; i < items.length; i++) {
-			items[i].setAttribute('tabindex', i === selectedIndex ? '0' : '-1');
-		}
-
-		for (let i = 0; i < items.length; i++) {
-			this.stepDisposables.add(addDisposableListener(items[i], EventType.KEY_DOWN, (e: KeyboardEvent) => {
-				const event = new StandardKeyboardEvent(e);
-				let newIndex: number | undefined;
-
-				if (event.keyCode === KeyCode.RightArrow || event.keyCode === KeyCode.DownArrow) {
-					newIndex = (i + 1) % items.length;
-				} else if (event.keyCode === KeyCode.LeftArrow || event.keyCode === KeyCode.UpArrow) {
-					newIndex = (i - 1 + items.length) % items.length;
-				} else if (event.keyCode === KeyCode.Home) {
-					newIndex = 0;
-				} else if (event.keyCode === KeyCode.End) {
-					newIndex = items.length - 1;
-				}
-
-				if (newIndex !== undefined) {
-					e.preventDefault();
-					e.stopPropagation();
-					items[i].setAttribute('tabindex', '-1');
-					items[newIndex].setAttribute('tabindex', '0');
-					items[newIndex].focus();
-					items[newIndex].click();
-				}
-			}));
-		}
-	}
-
-	// =====================================================================
-	// Focus trap
-	// =====================================================================
-
-	private _trapTab(e: KeyboardEvent, shiftKey: boolean): void {
-		if (!this.overlay) {
-			return;
-		}
-
-		const allFocusable = this._getFocusableElements();
-
-		if (allFocusable.length === 0) {
-			e.preventDefault();
-			return;
-		}
-
-		const first = allFocusable[0];
-		const last = allFocusable[allFocusable.length - 1];
-
-		if (shiftKey && getActiveWindow().document.activeElement === first) {
-			e.preventDefault();
-			last.focus();
-		} else if (!shiftKey && getActiveWindow().document.activeElement === last) {
-			e.preventDefault();
-			first.focus();
-		}
-	}
-
-	private _getFocusableElements(): HTMLElement[] {
-		return [...(this.closeButton ? [this.closeButton] : []), ...this.stepFocusableElements, ...this.footerFocusableElements].filter(element => this._isTabbable(element));
-	}
-
-	private _focusCurrentStepElement(): void {
-		const stepFocusable = this.stepFocusableElements.find(element => this._isTabbable(element));
-		(stepFocusable ?? this._getFocusableElements()[0])?.focus();
-	}
-
-	private _registerStepFocusable<T extends HTMLElement>(element: T): T {
-		this.stepFocusableElements.push(element);
-		return element;
-	}
-
-	private _isTabbable(element: HTMLElement): boolean {
-		if (!element.isConnected || element.getAttribute('aria-hidden') === 'true' || element.tabIndex === -1 || element.hasAttribute('disabled')) {
-			return false;
-		}
-
-		const computedStyle = getActiveWindow().getComputedStyle(element);
-		return computedStyle.display !== 'none' && computedStyle.visibility !== 'hidden';
-	}
-
-	// =====================================================================
-	// Telemetry
-	// =====================================================================
-
-	private _logStepView(): void {
-		const stepId = this.steps[this.currentStepIndex];
 		this.telemetryService.publicLog2<OnboardingStepViewEvent, OnboardingStepViewClassification>('welcomeOnboarding.stepView', {
-			step: stepId,
+			step,
 			stepNumber: this.currentStepIndex + 1,
 		});
 	}
 
-	private _logAction(action: string, stepOverride?: OnboardingStepId, argument?: string): void {
-		this.telemetryService.publicLog2<OnboardingActionEvent, OnboardingActionClassification>('welcomeOnboarding.actionExecuted', {
-			action,
-			step: stepOverride ?? this.steps[this.currentStepIndex],
-			argument: argument ?? undefined,
+	private renderThemeStep(container: HTMLElement): void {
+		const themeGrid = append(container, $('.onboarding-a-theme-grid'));
+		themeGrid.setAttribute('role', 'radiogroup');
+		themeGrid.setAttribute('aria-label', localize('onboarding.theme.label', "Choose a Pointer theme"));
+
+		const cards: HTMLButtonElement[] = [];
+		for (const theme of POINTER_ONBOARDING_THEMES) {
+			const card = this.registerStepFocusable(append(themeGrid, $<HTMLButtonElement>('button.onboarding-a-theme-card')));
+			cards.push(card);
+			card.type = 'button';
+			card.dataset.theme = theme.id;
+			card.classList.add(theme.type === 'light' ? 'light' : 'dark');
+			card.classList.add(theme.id);
+			card.classList.toggle('selected', theme.id === this.selectedThemeId);
+			card.setAttribute('role', 'radio');
+			card.setAttribute('aria-checked', theme.id === this.selectedThemeId ? 'true' : 'false');
+
+			const preview = append(card, $('.onboarding-a-theme-preview'));
+			const previewRail = append(preview, $('.onboarding-a-theme-preview-rail'));
+			append(previewRail, $('span'));
+			append(previewRail, $('span'));
+			append(previewRail, $('span'));
+			const previewEditor = append(preview, $('.onboarding-a-theme-preview-editor'));
+			append(previewEditor, $('span.long'));
+			append(previewEditor, $('span.medium'));
+			append(previewEditor, $('span.short'));
+			const label = append(card, $('.onboarding-a-theme-label'));
+			label.textContent = theme.label;
+			const description = append(card, $('.onboarding-a-theme-description'));
+			description.textContent = theme.id === 'pointer-obsidian'
+				? localize('onboarding.theme.obsidian.desc', "Deep black with restrained contrast")
+				: theme.id === 'pointer-cyber'
+					? localize('onboarding.theme.cyber.desc', "Dark with brighter accents")
+					: theme.type === 'light'
+						? localize('onboarding.theme.light.description', "Light editor and dark text")
+						: localize('onboarding.theme.dark.description', "Dark editor and clear text");
+
+			this.stepDisposables.add(addDisposableListener(card, EventType.CLICK, () => {
+				for (const candidate of cards) {
+					const selected = candidate === card;
+					candidate.classList.toggle('selected', selected);
+					candidate.setAttribute('aria-checked', selected ? 'true' : 'false');
+				}
+				void this.selectTheme(theme);
+			}));
+		}
+
+		this.setupRadioGroupNavigation(cards, Math.max(0, POINTER_ONBOARDING_THEMES.findIndex(theme => theme.id === this.selectedThemeId)));
+	}
+
+	private async selectTheme(theme: IOnboardingThemeOption): Promise<void> {
+		this.selectedThemeId = theme.id;
+		this.logAction('selectTheme', theme.id);
+		const themes = await this.themeService.getColorThemes();
+		const match = themes.find(candidate => candidate.settingsId === theme.themeId);
+		if (match) {
+			await this.themeService.setColorTheme(match.id, ConfigurationTarget.USER);
+			this.accessibilityService.alert(localize('onboarding.theme.selected', "{0} selected", theme.label));
+		}
+	}
+
+	private renderLocalModelsStep(container: HTMLElement): void {
+		const ollamaProvider = this.detectedProviders.find(p => p.definition.id === 'ollama');
+		const ollamaActive = ollamaProvider?.available ?? false;
+		const installedModels = new Set(ollamaProvider?.models ?? []);
+
+		const toolbar = append(container, $('.onboarding-a-model-toolbar'));
+		const scanStatus = append(toolbar, $('.onboarding-a-scan-status'));
+		const scanIcon = append(scanStatus, $('span.onboarding-a-scan-icon'));
+		scanIcon.appendChild(renderIcon(this.isScanning ? Codicon.loading : (ollamaActive ? Codicon.check : Codicon.warning)));
+		if (this.isScanning) {
+			scanIcon.classList.add('spinning');
+		}
+		const scanText = append(scanStatus, $('span'));
+		scanText.textContent = this.isScanning
+			? localize('onboarding.models.scanning', "Scanning local AI daemons…")
+			: ollamaActive
+				? localize('onboarding.models.ollamaReady', "Ollama is running · {0} models installed", installedModels.size)
+				: localize('onboarding.models.ollamaOffline', "Ollama isn't running. Install it or scan again.");
+
+		const actionsGroup = append(toolbar, $('.onboarding-a-toolbar-actions'));
+
+		if (!ollamaActive) {
+			const downloadOllamaBtn = this.registerStepFocusable(append(actionsGroup, $<HTMLButtonElement>('button.onboarding-a-btn-accent')));
+			downloadOllamaBtn.type = 'button';
+			downloadOllamaBtn.appendChild(renderIcon(Codicon.cloudDownload));
+			downloadOllamaBtn.append(' Get Ollama');
+			this.stepDisposables.add(addDisposableListener(downloadOllamaBtn, EventType.CLICK, () => {
+				getActiveWindow().open('https://ollama.com/download', '_blank');
+			}));
+		}
+
+		const refreshButton = this.registerStepFocusable(append(actionsGroup, $<HTMLButtonElement>('button.onboarding-a-refresh-btn')));
+		refreshButton.type = 'button';
+		refreshButton.disabled = this.isScanning;
+		refreshButton.appendChild(renderIcon(Codicon.refresh));
+		refreshButton.append(localize('onboarding.models.scanAgain', "Scan again"));
+		this.stepDisposables.add(addDisposableListener(refreshButton, EventType.CLICK, () => void this.scanLocalProviders(true)));
+
+		const intro = append(container, $('.onboarding-a-step-callout'));
+		const introIcon = append(intro, $('span.onboarding-a-step-callout-icon'));
+		introIcon.appendChild(renderIcon(Codicon.serverEnvironment));
+		const introCopy = append(intro, $('.onboarding-a-step-callout-copy'));
+		append(introCopy, $('strong')).textContent = localize('onboarding.models.runtimeTitle', "Choose your local runtime");
+		append(introCopy, $('span')).textContent = localize('onboarding.models.runtimeCopy', "Pointer connects directly to runtimes on this computer. Nothing is sent to GitHub.");
+		this.renderProvidersList(container);
+		const privacyNote = append(container, $('.onboarding-a-model-note'));
+		privacyNote.appendChild(renderIcon(Codicon.shield));
+		privacyNote.append(localize('onboarding.models.runtimeNote', "Your local prompts and model traffic stay on this device."));
+	}
+
+	/** @deprecated Kept for extension-host compatibility with older onboarding overrides. */
+	renderModelHub(container: HTMLElement, installedModels: Set<string>, ollamaActive: boolean): void {
+		const hubContainer = append(container, $('.onboarding-a-hub-container'));
+
+		const grid = append(hubContainer, $('.onboarding-a-catalog-grid'));
+
+		for (const model of TOP_OLLAMA_MODELS) {
+			const isInstalled = installedModels.has(model.id) || installedModels.has(`${model.id}:latest`);
+			const downloadState = this.downloadingModels.get(model.id);
+			const isSelectedAgent = this.selectedAgentModel === model.id;
+			const isSelectedCompletion = this.selectedCompletionModel === model.id;
+
+			const card = append(grid, $('.onboarding-a-catalog-card'));
+			card.classList.toggle('active-agent', isSelectedAgent);
+			card.classList.toggle('active-completion', isSelectedCompletion);
+
+			const cardHeader = append(card, $('.onboarding-a-card-header'));
+			const titleBox = append(cardHeader, $('.onboarding-a-card-title-box'));
+			const title = append(titleBox, $('span.title'));
+			title.textContent = model.name;
+
+			const badges = append(cardHeader, $('.onboarding-a-card-badges'));
+			const categoryBadge = append(badges, $(`span.badge.badge-${model.category}`));
+			categoryBadge.textContent = model.category === 'agent' ? 'Agent' : 'Completion';
+
+			const sizeBadge = append(badges, $('span.badge.badge-size'));
+			sizeBadge.textContent = model.parameterSize;
+
+			const desc = append(card, $('p.onboarding-a-card-desc'));
+			desc.textContent = model.description;
+
+			const actions = append(card, $('.onboarding-a-card-actions'));
+
+			if (downloadState) {
+				const progressBox = append(actions, $('.onboarding-a-progress-box'));
+				progressBox.setAttribute('role', 'progressbar');
+				progressBox.setAttribute('aria-valuemin', '0');
+				progressBox.setAttribute('aria-valuemax', '100');
+				progressBox.setAttribute('aria-valuenow', String(downloadState.progress));
+				const progressBar = append(progressBox, $('.onboarding-a-progress-fill'));
+				progressBar.style.width = `${downloadState.progress}%`;
+				const progressText = append(progressBox, $('span.progress-text'));
+				progressText.textContent = downloadState.status;
+				this.downloadProgressElements.set(model.id, { fill: progressBar, text: progressText, box: progressBox });
+			} else if (isInstalled) {
+				const statusBadge = append(actions, $('span.onboarding-a-installed-badge'));
+				statusBadge.appendChild(renderIcon(Codicon.check));
+				statusBadge.append(' Installed');
+
+				const roleGroup = append(actions, $('.onboarding-a-role-group'));
+
+				if (model.category === 'agent') {
+					const agentBtn = this.registerStepFocusable(append(roleGroup, $<HTMLButtonElement>('button.onboarding-a-role-btn')));
+					agentBtn.type = 'button';
+					agentBtn.classList.toggle('selected', isSelectedAgent);
+					agentBtn.textContent = isSelectedAgent ? '✓ Sidebar Agent' : 'Set as Agent';
+					this.stepDisposables.add(addDisposableListener(agentBtn, EventType.CLICK, () => {
+						this.selectedAgentModel = model.id;
+						this.renderCurrentStep();
+					}));
+				} else {
+					const compBtn = this.registerStepFocusable(append(roleGroup, $<HTMLButtonElement>('button.onboarding-a-role-btn')));
+					compBtn.type = 'button';
+					compBtn.classList.toggle('selected', isSelectedCompletion);
+					compBtn.textContent = isSelectedCompletion ? '✓ Tab Completion' : 'Set for Completion';
+					this.stepDisposables.add(addDisposableListener(compBtn, EventType.CLICK, () => {
+						this.selectedCompletionModel = model.id;
+						this.renderCurrentStep();
+					}));
+				}
+			} else {
+				const pullBtn = this.registerStepFocusable(append(actions, $<HTMLButtonElement>('button.onboarding-a-pull-btn')));
+				pullBtn.type = 'button';
+				pullBtn.disabled = !ollamaActive;
+				pullBtn.appendChild(renderIcon(Codicon.cloudDownload));
+				pullBtn.append(ollamaActive ? ` ${localize('onboarding.models.download', "Download")}` : ` ${localize('onboarding.models.offline', "Offline")}`);
+
+				this.stepDisposables.add(addDisposableListener(pullBtn, EventType.CLICK, () => {
+					void this.pullOllamaModel(model.id);
+				}));
+			}
+		}
+	}
+
+	private renderModelSelectionStep(container: HTMLElement, role: ModelRole): void {
+		const ollamaActive = this.detectedProviders.find(provider => provider.definition.id === 'ollama')?.available ?? false;
+		const catalog = this.getModelCatalog().sort((left, right) => {
+			const availability = Number(right.installed) - Number(left.installed);
+			if (availability !== 0) {
+				return availability;
+			}
+			const roleFit = Number(right.category === role) - Number(left.category === role);
+			return roleFit !== 0 ? roleFit : left.name.localeCompare(right.name);
+		});
+		const availableCount = catalog.filter(model => model.installed).length;
+		const providerCount = new Set(catalog.filter(model => model.installed).map(model => model.providerId)).size;
+		const overview = append(container, $('.onboarding-a-model-overview'));
+		const overviewIcon = append(overview, $('span.onboarding-a-model-overview-icon'));
+		overviewIcon.appendChild(renderIcon(role === 'agent' ? Codicon.robot : Codicon.zap));
+		append(overview, $('span')).textContent = localize(
+			'onboarding.models.availableSummary',
+			"{0} available models from {1} connected sources. You can change this later.",
+			availableCount,
+			providerCount,
+		);
+
+		const customDetails = append(container, $<HTMLDetailsElement>('details.onboarding-a-custom-model-details'));
+		const customSummary = this.registerStepFocusable(append(customDetails, $<HTMLElement>('summary.onboarding-a-custom-model-summary')));
+		customSummary.appendChild(renderIcon(Codicon.repo));
+		customSummary.append(` ${localize('onboarding.models.addHuggingFace', "Add a Hugging Face model")}`);
+		const custom = append(customDetails, $('.onboarding-a-custom-model'));
+		const customIcon = append(custom, $('span.onboarding-a-custom-model-icon'));
+		customIcon.appendChild(renderIcon(Codicon.repo));
+		const customInput = this.registerStepFocusable(append(custom, $<HTMLInputElement>('input.onboarding-a-custom-model-input')));
+		customInput.type = 'text';
+		customInput.placeholder = 'hf.co/owner/model:tag';
+		customInput.value = this.customHuggingFaceModel;
+		customInput.setAttribute('aria-label', localize('onboarding.models.huggingFaceInput', "Hugging Face model reference"));
+		const customButton = this.registerStepFocusable(append(custom, $<HTMLButtonElement>('button.onboarding-a-pull-btn')));
+		customButton.type = 'button';
+		customButton.appendChild(renderIcon(Codicon.cloudDownload));
+		customButton.append(` ${localize('onboarding.models.pull', "Pull model")}`);
+		const updateCustomButton = () => customButton.disabled = !ollamaActive || !this.isValidHuggingFaceModel(customInput.value);
+		updateCustomButton();
+		this.stepDisposables.add(addDisposableListener(customInput, EventType.INPUT, () => {
+			this.customHuggingFaceModel = customInput.value.trim();
+			updateCustomButton();
+		}));
+		this.stepDisposables.add(addDisposableListener(customButton, EventType.CLICK, () => {
+			const modelId = customInput.value.trim();
+			if (this.isValidHuggingFaceModel(modelId)) {
+				void this.pullOllamaModel(modelId, role);
+			}
+		}));
+
+		const grid = append(container, $('.onboarding-a-catalog-grid'));
+		grid.setAttribute('role', 'list');
+		for (const model of catalog) {
+			this.renderRoleModelCard(grid, model, role, ollamaActive);
+		}
+	}
+
+	private renderRoleModelCard(grid: HTMLElement, model: IModelCatalogEntry, role: ModelRole, ollamaActive: boolean): void {
+		const downloadState = this.downloadingModels.get(model.id);
+		const selected = role === 'agent'
+			? this.selectedAgentModel === model.id && this.selectedAgentProviderId === model.providerId
+			: this.selectedCompletionModel === model.id && this.selectedCompletionProviderId === model.providerId;
+		const card = append(grid, $('.onboarding-a-catalog-card'));
+		card.setAttribute('role', 'listitem');
+		card.classList.toggle(`active-${role}`, selected);
+		const header = append(card, $('.onboarding-a-card-header'));
+		const titleBox = append(header, $('.onboarding-a-card-title-box'));
+		append(titleBox, $('span.title')).textContent = model.name;
+		const metadata = append(header, $('.onboarding-a-card-metadata'));
+		metadata.textContent = [model.providerName, model.parameterSize, model.contextWindow ? `${this.formatCompactNumber(model.contextWindow)} context` : undefined].filter(Boolean).join(' · ');
+		if (model.category === role) {
+			const fit = append(header, $('span.onboarding-a-model-fit'));
+			fit.textContent = role === 'agent'
+				? localize('onboarding.models.agentFit', "Agent fit")
+				: localize('onboarding.models.completionFit', "Completion fit");
+		}
+		append(card, $('p.onboarding-a-card-desc')).textContent = model.description;
+		const actions = append(card, $('.onboarding-a-card-actions'));
+		if (downloadState) {
+			const box = append(actions, $('.onboarding-a-progress-box'));
+			box.setAttribute('role', 'progressbar');
+			box.setAttribute('aria-valuemin', '0');
+			box.setAttribute('aria-valuemax', '100');
+			box.setAttribute('aria-valuenow', String(downloadState.progress));
+			const fill = append(box, $('.onboarding-a-progress-fill'));
+			fill.style.width = `${downloadState.progress}%`;
+			const text = append(box, $('span.progress-text'));
+			text.textContent = downloadState.status;
+			this.downloadProgressElements.set(model.id, { fill, text, box });
+			return;
+		}
+		if (!model.installed && model.downloadable) {
+			const pull = this.registerStepFocusable(append(actions, $<HTMLButtonElement>('button.onboarding-a-pull-btn')));
+			pull.type = 'button';
+			pull.disabled = !ollamaActive || model.providerId !== 'ollama';
+			pull.appendChild(renderIcon(Codicon.cloudDownload));
+			pull.append(` ${ollamaActive ? localize('onboarding.models.download', "Download") : localize('onboarding.models.offline', "Offline")}`);
+			this.stepDisposables.add(addDisposableListener(pull, EventType.CLICK, () => void this.pullOllamaModel(model.id, role)));
+			return;
+		}
+		if (!model.installed) {
+			const unavailable = append(actions, $('span.onboarding-a-installed-badge'));
+			unavailable.appendChild(renderIcon(Codicon.circleSlash));
+			unavailable.append(` ${localize('onboarding.models.configureSource', "Configure source first")}`);
+			return;
+		}
+		const source = append(actions, $('span.onboarding-a-installed-badge'));
+		source.appendChild(renderIcon(model.providerId === 'ollama' || model.providerId === 'lmstudio' ? Codicon.deviceDesktop : Codicon.cloud));
+		source.append(` ${model.providerId === 'ollama' || model.providerId === 'lmstudio' ? localize('onboarding.models.onDevice', "On device") : localize('onboarding.models.connected', "Connected")}`);
+		const roleButton = this.registerStepFocusable(append(actions, $<HTMLButtonElement>('button.onboarding-a-role-btn')));
+		roleButton.type = 'button';
+		roleButton.classList.toggle('selected', selected);
+		roleButton.setAttribute('aria-pressed', String(selected));
+		if (selected) {
+			roleButton.appendChild(renderIcon(Codicon.check));
+		}
+		roleButton.append(selected
+			? localize('onboarding.models.selected', " Selected")
+			: (role === 'agent' ? 'Use for Agent' : 'Use for Completion'));
+		this.stepDisposables.add(addDisposableListener(roleButton, EventType.CLICK, () => this.selectModel(model, role)));
+	}
+
+	private getModelCatalog(): IModelCatalogEntry[] {
+		const catalog = new Map<string, IModelCatalogEntry>();
+		const ollamaModels = new Set(this.detectedProviders.find(provider => provider.definition.id === 'ollama')?.models ?? []);
+		for (const model of TOP_OLLAMA_MODELS) {
+			catalog.set(`ollama:${model.id}`, { ...model, providerId: 'ollama', providerName: 'Ollama', installed: ollamaModels.has(model.id) || ollamaModels.has(`${model.id}:latest`), downloadable: true });
+		}
+		for (const provider of this.detectedProviders.filter(candidate => candidate.available)) {
+			for (const modelId of provider.models) {
+				const key = `${provider.definition.id}:${modelId}`;
+				if (!catalog.has(key)) {
+					catalog.set(key, {
+						id: modelId,
+						name: modelId,
+						providerId: provider.definition.id,
+						providerName: provider.definition.name,
+						category: this.guessModelRole(modelId),
+						parameterSize: this.guessParameterSize(modelId),
+						description: localize('onboarding.models.localModel', "Installed through {0}", provider.definition.name),
+						installed: true,
+						downloadable: false,
+					});
+				}
+			}
+		}
+
+		for (const identifier of this.languageModelsService.getLanguageModelIds()) {
+			const metadata = this.languageModelsService.lookupLanguageModel(identifier);
+			if (!metadata || metadata.isUserSelectable === false) {
+				continue;
+			}
+			const providerName = metadata.auth?.providerLabel ?? metadata.detail ?? this.formatProviderName(metadata.vendor);
+			const source = metadata.auth?.accountLabel
+				? localize('onboarding.models.connectedAccount', "Connected as {0}", metadata.auth.accountLabel)
+				: localize('onboarding.models.registeredSource', "Available from {0}", providerName);
+			catalog.set(`${metadata.vendor}:${metadata.id}`, {
+				id: metadata.id,
+				name: metadata.name,
+				providerId: metadata.vendor,
+				providerName,
+				category: metadata.capabilities?.toolCalling === false ? 'completion' : this.guessModelRole(metadata.id),
+				parameterSize: this.guessParameterSize(metadata.id),
+				description: source,
+				installed: true,
+				downloadable: false,
+				contextWindow: metadata.maxInputTokens,
+				supportsTools: metadata.capabilities?.toolCalling,
+			});
+		}
+
+		for (const group of this.languageModelsConfigurationService.getLanguageModelsProviderGroups()) {
+			if (group.enabled === false) {
+				continue;
+			}
+			const configuredModels = this.getConfiguredModelEntries(group.cachedModels);
+			for (const configured of configuredModels) {
+				const key = `${group.vendor}:${configured.id}`;
+				if (catalog.has(key)) {
+					continue;
+				}
+				catalog.set(key, {
+					id: configured.id,
+					name: configured.name,
+					providerId: group.vendor,
+					providerName: group.name,
+					category: configured.toolCalling === false ? 'completion' : this.guessModelRole(configured.id),
+					parameterSize: this.guessParameterSize(configured.id),
+					description: localize('onboarding.models.configuredSource', "Configured in {0}", group.name),
+					installed: true,
+					downloadable: false,
+					contextWindow: configured.maxInputTokens,
+					supportsTools: configured.toolCalling,
+				});
+			}
+		}
+		return [...catalog.values()];
+	}
+
+	private getConfiguredModelEntries(value: unknown): Array<{ id: string; name: string; maxInputTokens?: number; toolCalling?: boolean }> {
+		if (!Array.isArray(value)) {
+			return [];
+		}
+		return value.flatMap(entry => {
+			if (typeof entry === 'string' && entry.trim()) {
+				return [{ id: entry.trim(), name: entry.trim() }];
+			}
+			if (!entry || typeof entry !== 'object') {
+				return [];
+			}
+			const candidate = entry as Record<string, unknown>;
+			if (typeof candidate.id !== 'string' || !candidate.id.trim()) {
+				return [];
+			}
+			return [{
+				id: candidate.id.trim(),
+				name: typeof candidate.name === 'string' && candidate.name.trim() ? candidate.name.trim() : candidate.id.trim(),
+				maxInputTokens: typeof candidate.maxInputTokens === 'number' ? candidate.maxInputTokens : undefined,
+				toolCalling: typeof candidate.toolCalling === 'boolean' ? candidate.toolCalling : undefined,
+			}];
 		});
 	}
 
-	// =====================================================================
-	// Cleanup
-	// =====================================================================
+	private formatProviderName(providerId: string): string {
+		return providerId.split(/[-_]/g).filter(Boolean).map(part => part[0]?.toUpperCase() + part.slice(1)).join(' ');
+	}
 
-	private _removeFromDOM(): void {
-		if (this.overlay) {
-			this.overlay.remove();
-			this.overlay = undefined;
+	private formatCompactNumber(value: number): string {
+		return value >= 1_000_000 ? `${(value / 1_000_000).toFixed(1)}M` : value >= 1_000 ? `${Math.round(value / 1_000)}K` : String(value);
+	}
+
+	private selectModel(model: IModelCatalogEntry, role: ModelRole): void {
+		if (role === 'agent') {
+			this.selectedAgentModel = model.id;
+			this.selectedAgentProviderId = model.providerId;
+		} else {
+			this.selectedCompletionModel = model.id;
+			this.selectedCompletionProviderId = model.providerId;
+		}
+		this.logAction(role === 'agent' ? 'selectAgentModel' : 'selectCompletionModel', `${model.providerId}:${model.id}`);
+		this.renderCurrentStep();
+	}
+
+	private guessModelRole(modelId: string): ModelRole {
+		return /(?:fim|starcoder|completion|autocomplete|base)/i.test(modelId) ? 'completion' : 'agent';
+	}
+
+	private guessParameterSize(modelId: string): string {
+		return modelId.match(/\b\d+(?:\.\d+)?b\b/i)?.[0].toUpperCase() ?? localize('onboarding.models.local', "Local");
+	}
+
+	private isValidHuggingFaceModel(value: string): boolean {
+		return /^(?:hf\.co\/)?[\w.-]+\/[\w.-]+(?::[\w.-]+)?$/i.test(value.trim());
+	}
+
+	private renderProvidersList(container: HTMLElement): void {
+		const providerList = append(container, $('.onboarding-a-provider-list'));
+		const providers = this.detectedProviders.length > 0
+			? this.detectedProviders
+			: LOCAL_PROVIDER_DEFINITIONS.map(definition => ({ definition, available: false, models: [], selected: false }));
+
+		for (const provider of providers) {
+			const card = this.registerStepFocusable(append(providerList, $<HTMLButtonElement>('button.onboarding-a-provider-card')));
+			card.type = 'button';
+			card.disabled = this.isScanning || !provider.available;
+			card.classList.toggle('available', provider.available);
+			card.classList.toggle('selected', provider.selected);
+			card.setAttribute('aria-pressed', provider.selected ? 'true' : 'false');
+
+			const icon = append(card, $('.onboarding-a-provider-icon'));
+			icon.appendChild(renderIcon(provider.definition.icon));
+			const details = append(card, $('.onboarding-a-provider-details'));
+			const titleRow = append(details, $('.onboarding-a-provider-title-row'));
+			const title = append(titleRow, $('span.onboarding-a-provider-title'));
+			title.textContent = provider.definition.name;
+			const state = append(titleRow, $('span.onboarding-a-provider-state'));
+			state.textContent = this.isScanning
+				? localize('onboarding.models.checking', "Checking")
+				: provider.available
+					? localize('onboarding.models.detected', "Detected")
+					: localize('onboarding.models.notRunning', "Not running");
+			const endpoint = append(details, $('span.onboarding-a-provider-endpoint'));
+			endpoint.textContent = provider.definition.endpoint;
+
+			if (provider.models.length > 0) {
+				const models = append(details, $('.onboarding-a-model-chips'));
+				for (const model of provider.models.slice(0, 5)) {
+					const chip = append(models, $('span.onboarding-a-model-chip'));
+					chip.textContent = model;
+				}
+				if (provider.models.length > 5) {
+					const more = append(models, $('span.onboarding-a-model-chip.more'));
+					more.textContent = localize('onboarding.models.more', "+{0} more", provider.models.length - 5);
+				}
+			} else if (provider.available) {
+				const empty = append(details, $('span.onboarding-a-provider-empty'));
+				empty.textContent = localize('onboarding.models.empty', "Server found; no downloaded model reported.");
+			}
+
+			const selection = append(card, $('.onboarding-a-provider-selection'));
+			selection.appendChild(renderIcon(provider.selected ? Codicon.check : Codicon.circleLargeOutline));
+			this.stepDisposables.add(addDisposableListener(card, EventType.CLICK, () => {
+				provider.selected = !provider.selected;
+				this.logAction(provider.selected ? 'selectProvider' : 'deselectProvider', provider.definition.id);
+				this.renderCurrentStep();
+				this.focusCurrentStepElement();
+			}));
+		}
+	}
+
+	private async pullOllamaModel(modelId: string, selectRole?: ModelRole): Promise<void> {
+		if (this.downloadingModels.has(modelId)) {
+			return;
+		}
+		this.downloadingModels.set(modelId, { status: localize('onboarding.models.preparing', "Preparing download…"), progress: 2 });
+		this.renderCurrentStep();
+
+		try {
+			const response = await fetch('http://127.0.0.1:11434/api/pull', {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body: JSON.stringify({ name: modelId, stream: true })
+			});
+
+			if (!response.body) {
+				throw new Error('No streaming response body');
+			}
+
+			const reader = response.body.getReader();
+			const decoder = new TextDecoder();
+			let buffer = '';
+
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done) {
+					break;
+				}
+				buffer += decoder.decode(value, { stream: true });
+				const lines = buffer.split('\n');
+				buffer = lines.pop() || '';
+
+				for (const line of lines) {
+					if (!line.trim()) {
+						continue;
+					}
+					try {
+						const json = JSON.parse(line);
+						let progress = 2;
+						if (json.total && json.completed) {
+							progress = Math.min(99, Math.round((json.completed / json.total) * 100));
+						}
+						const status = this.formatDownloadStatus(json.status, progress);
+						this.downloadingModels.set(modelId, { status, progress });
+						this.updateDownloadProgress(modelId, status, progress);
+					} catch {}
+				}
+			}
+
+			this.downloadingModels.delete(modelId);
+			await this.scanLocalProviders();
+			if (selectRole) {
+				this.selectModel({
+					id: modelId,
+					name: modelId,
+					providerId: 'ollama',
+					category: selectRole,
+					parameterSize: this.guessParameterSize(modelId),
+					description: localize('onboarding.models.huggingFaceModel', "Pulled from Hugging Face through Ollama"),
+					installed: true,
+					providerName: 'Ollama',
+					downloadable: false,
+				}, selectRole);
+				this.customHuggingFaceModel = '';
+			}
+		} catch (err) {
+			const status = localize('onboarding.models.downloadFailed', "Download failed");
+			this.downloadingModels.set(modelId, { status, progress: 0 });
+			this.updateDownloadProgress(modelId, status, 0);
+			setTimeout(() => {
+				this.downloadingModels.delete(modelId);
+				this.renderCurrentStep();
+			}, 3500);
+		}
+	}
+
+	private formatDownloadStatus(rawStatus: unknown, progress: number): string {
+		const status = typeof rawStatus === 'string' ? rawStatus.toLowerCase() : '';
+		if (progress > 2 && progress < 100) {
+			return localize('onboarding.models.downloadingProgress', "Downloading · {0}%", progress);
+		}
+		if (status.includes('verif')) {
+			return localize('onboarding.models.verifying', "Verifying…");
+		}
+		if (status.includes('writ') || status.includes('success') || status.includes('complete')) {
+			return localize('onboarding.models.finishing', "Finishing…");
+		}
+		return localize('onboarding.models.preparing', "Preparing download…");
+	}
+
+	private updateDownloadProgress(modelId: string, status: string, progress: number): void {
+		const elements = this.downloadProgressElements.get(modelId);
+		if (!elements) {
+			return;
+		}
+		elements.fill.style.width = `${progress}%`;
+		elements.text.textContent = status;
+		elements.box.setAttribute('aria-valuenow', String(progress));
+		elements.box.setAttribute('aria-valuetext', status);
+	}
+
+	private async scanLocalProviders(announce = false): Promise<void> {
+		const generation = ++this.scanGeneration;
+		this.isScanning = true;
+		if (this.isShowing && this.isModelSetupStep()) {
+			this.renderCurrentStep();
 		}
 
+		const detected = await Promise.all(LOCAL_PROVIDER_DEFINITIONS.map(definition => this.detectLocalProvider(definition)));
+		if (generation !== this.scanGeneration) {
+			return;
+		}
+
+		this.detectedProviders = detected;
+		const ollama = detected.find(provider => provider.definition.id === 'ollama' && provider.available);
+		if (ollama?.models.length) {
+			if (this.selectedAgentProviderId === 'ollama' && !this.hasLocalModel(ollama.models, this.selectedAgentModel)) {
+				this.selectedAgentModel = ollama.models.find(model => this.guessModelRole(model) === 'agent') ?? ollama.models[0];
+			}
+			if (this.selectedCompletionProviderId === 'ollama' && !this.hasLocalModel(ollama.models, this.selectedCompletionModel)) {
+				this.selectedCompletionModel = ollama.models.find(model => this.guessModelRole(model) === 'completion') ?? ollama.models[0];
+			}
+		}
+		this.isScanning = false;
+		if (announce) {
+			this.accessibilityService.alert(this.localModelsSummary());
+		}
+		if (this.isShowing && this.isModelSetupStep()) {
+			this.renderCurrentStep();
+		}
+	}
+
+	private isModelSetupStep(): boolean {
+		const step = this.steps[this.currentStepIndex];
+		return step === OnboardingStepId.Runtime || step === OnboardingStepId.AgentModel || step === OnboardingStepId.CompletionModel;
+	}
+
+	private async detectLocalProvider(definition: ILocalProviderDefinition): Promise<IDetectedLocalProvider> {
+		try {
+			const response = await this.requestService.request({
+				type: 'GET',
+				url: definition.modelsUrl,
+				disableCache: true,
+				timeout: 1600,
+				callSite: `welcomeOnboarding.detect.${definition.id}`,
+			}, CancellationToken.None);
+
+			const models = definition.id === 'ollama'
+				? this.parseOllamaModels(await asJson<IOllamaTagsResponse>(response))
+				: this.parseOpenAIModels(await asJson<IOpenAIModelsResponse>(response));
+			return { definition, available: true, models, selected: true };
+		} catch {
+			return { definition, available: false, models: [], selected: false };
+		}
+	}
+
+	private parseOllamaModels(response: IOllamaTagsResponse | null): readonly string[] {
+		return this.uniqueModelNames(response?.models?.map(model => model.name ?? model.model ?? '') ?? []);
+	}
+
+	private parseOpenAIModels(response: IOpenAIModelsResponse | null): readonly string[] {
+		return this.uniqueModelNames(response?.data?.map(model => model.id ?? '') ?? []);
+	}
+
+	private uniqueModelNames(names: readonly string[]): readonly string[] {
+		return [...new Set(names.map(name => name.trim()).filter(name => name.length > 0))];
+	}
+
+	private hasLocalModel(models: readonly string[], modelId: string): boolean {
+		return models.some(model => model === modelId || model === `${modelId}:latest` || `${model}:latest` === modelId);
+	}
+
+	private localModelsSummary(): string {
+		const providers = this.detectedProviders.filter(provider => provider.available);
+		const modelCount = providers.reduce((count, provider) => count + provider.models.length, 0);
+		if (providers.length === 0) {
+			return localize('onboarding.models.none', "No local server detected — you can add one later.");
+		}
+		if (modelCount === 0) {
+			return localize('onboarding.models.serversFound', "Found {0} local model server(s).", providers.length);
+		}
+		return localize('onboarding.models.found', "Found {0} model(s) across {1} local server(s).", modelCount, providers.length);
+	}
+
+	private async configureSelectedProviders(): Promise<void> {
+		const existingGroups = this.languageModelsConfigurationService.getLanguageModelsProviderGroups();
+		let hasDefaultProfile = existingGroups.some(group => group.isDefaultProfile === true && group.enabled !== false);
+		const selectedProviders = this.detectedProviders.filter(provider => provider.available && provider.selected);
+
+		this.isConfiguring = true;
+		if (this.nextButton) {
+			this.nextButton.disabled = true;
+			this.nextButton.textContent = localize('onboarding.models.adding', "Configuring AI engine…");
+		}
+
+		for (const provider of selectedProviders) {
+			const models = [...provider.models];
+			if (provider.definition.id === this.selectedAgentProviderId && !models.includes(this.selectedAgentModel)) {
+				models.push(this.selectedAgentModel);
+			}
+			if (provider.definition.id === this.selectedCompletionProviderId && !models.includes(this.selectedCompletionModel)) {
+				models.push(this.selectedCompletionModel);
+			}
+			const cachedModels = models.map(model => ({
+				id: model,
+				name: model,
+				maxInputTokens: 128000,
+				maxOutputTokens: 8192,
+				toolCalling: true,
+				vision: false,
+			}));
+			const modelDefaults = {
+				cachedModels,
+				enabled: true,
+				isDefaultProfile: !hasDefaultProfile,
+				...(provider.definition.id === this.selectedAgentProviderId ? { defaultChatModel: this.selectedAgentModel } : {}),
+				...(provider.definition.id === this.selectedCompletionProviderId ? { defaultCodingModel: this.selectedCompletionModel, fastModel: this.selectedCompletionModel } : {}),
+			};
+			const providerConfiguration = provider.definition.id === 'ollama'
+				? { url: 'http://127.0.0.1:11434', ...modelDefaults }
+				: { baseUrl: 'http://127.0.0.1:1234/v1', authType: 'none', ...modelDefaults };
+			try {
+				await this.languageModelsService.addLanguageModelsProviderGroup(`${provider.definition.name} Local`, provider.definition.id, providerConfiguration);
+				this.configuredProviderIds.add(provider.definition.id);
+				hasDefaultProfile = true;
+			} catch {
+				// Provider configuration is best-effort; onboarding remains usable.
+			}
+		}
+
+		this.isConfiguring = false;
+		if (this.nextButton) {
+			this.nextButton.disabled = false;
+		}
+	}
+
+	private renderReadyStep(container: HTMLElement): void {
+		const hero = append(container, $('.onboarding-a-ready'));
+		const mark = append(hero, $('.onboarding-a-ready-mark'));
+		mark.setAttribute('aria-hidden', 'true');
+		const message = append(hero, $('p.onboarding-a-ready-message'));
+		message.textContent = localize('onboarding.ready.local', "Your Pointer theme, Sidebar Agent ({0}) and Tab Completion ({1}) are configured.", this.selectedAgentModel, this.selectedCompletionModel);
+
+		const features = append(hero, $('.onboarding-a-ready-features'));
+		this.renderReadyFeature(features, Codicon.colorMode, localize('onboarding.ready.theme', "Pointer theme"), this.selectedThemeId.replace('-', ' ').toUpperCase());
+		this.renderReadyFeature(
+			features,
+			Codicon.robot,
+			localize('onboarding.ready.agent', "Sidebar Agent"),
+			this.selectedAgentModel,
+		);
+		this.renderReadyFeature(
+			features,
+			Codicon.zap,
+			localize('onboarding.ready.completion', "Tab Completion"),
+			this.selectedCompletionModel,
+		);
+
+		const manageModelsButton = this.registerStepFocusable(append(hero, $<HTMLButtonElement>('button.onboarding-a-manage-models')));
+		manageModelsButton.type = 'button';
+		manageModelsButton.appendChild(renderIcon(Codicon.settingsGear));
+		manageModelsButton.append(localize('onboarding.ready.manageModels', "Manage Language Models"));
+		this.stepDisposables.add(addDisposableListener(manageModelsButton, EventType.CLICK, () => {
+			this.logAction('manageModels');
+			this.dismiss();
+			void this.commandService.executeCommand('workbench.action.openLanguageModelsJson');
+		}));
+	}
+
+	private renderReadyFeature(parent: HTMLElement, icon: typeof Codicon.colorMode, label: string, value: string): void {
+		const item = append(parent, $('.onboarding-a-ready-feature'));
+		const iconElement = append(item, $('span.onboarding-a-ready-feature-icon'));
+		iconElement.appendChild(renderIcon(icon));
+		const copy = append(item, $('.onboarding-a-ready-feature-copy'));
+		const labelElement = append(copy, $('span.onboarding-a-ready-feature-label'));
+		labelElement.textContent = label;
+		const valueElement = append(copy, $('span.onboarding-a-ready-feature-value'));
+		valueElement.textContent = value;
+	}
+
+	private setupRadioGroupNavigation(items: readonly HTMLButtonElement[], selectedIndex: number): void {
+		for (let index = 0; index < items.length; index++) {
+			items[index].tabIndex = index === selectedIndex ? 0 : -1;
+			this.stepDisposables.add(addDisposableListener(items[index], EventType.KEY_DOWN, event => {
+				const keyboardEvent = new StandardKeyboardEvent(event);
+				let nextIndex: number | undefined;
+				if (keyboardEvent.keyCode === KeyCode.RightArrow || keyboardEvent.keyCode === KeyCode.DownArrow) {
+					nextIndex = (index + 1) % items.length;
+				} else if (keyboardEvent.keyCode === KeyCode.LeftArrow || keyboardEvent.keyCode === KeyCode.UpArrow) {
+					nextIndex = (index - 1 + items.length) % items.length;
+				}
+
+				if (nextIndex !== undefined) {
+					event.preventDefault();
+					items[index].tabIndex = -1;
+					items[nextIndex].tabIndex = 0;
+					items[nextIndex].focus();
+					items[nextIndex].click();
+				}
+			}));
+		}
+	}
+
+	private trapTab(event: KeyboardEvent, shiftKey: boolean): void {
+		const focusable = this.getFocusableElements();
+		if (focusable.length === 0) {
+			event.preventDefault();
+			return;
+		}
+
+		const activeElement = getActiveWindow().document.activeElement;
+		if (shiftKey && activeElement === focusable[0]) {
+			event.preventDefault();
+			focusable[focusable.length - 1].focus();
+		} else if (!shiftKey && activeElement === focusable[focusable.length - 1]) {
+			event.preventDefault();
+			focusable[0].focus();
+		}
+	}
+
+	private getFocusableElements(): readonly HTMLElement[] {
+		const elements = [			...this.stepFocusableElements,
+			...this.footerFocusableElements,
+		];
+		return elements.filter(element => this.isTabbable(element));
+	}
+
+	private focusCurrentStepElement(): void {
+		const firstStepElement = this.stepFocusableElements.find(element => this.isTabbable(element));
+		(firstStepElement ?? this.getFocusableElements()[0])?.focus();
+	}
+
+	private registerStepFocusable<T extends HTMLElement>(element: T): T {
+		this.stepFocusableElements.push(element);
+		return element;
+	}
+
+	private isTabbable(element: HTMLElement): boolean {
+		if (!element.isConnected || element.tabIndex === -1 || element.hasAttribute('disabled')) {
+			return false;
+		}
+		const style = getActiveWindow().getComputedStyle(element);
+		return style.display !== 'none' && style.visibility !== 'hidden';
+	}
+
+	private logAction(action: string, argument?: string): void {
+		this.telemetryService.publicLog2<OnboardingActionEvent, OnboardingActionClassification>('welcomeOnboarding.actionExecuted', {
+			action,
+			step: this.steps[this.currentStepIndex],
+			argument,
+		});
+	}
+
+	private removeFromDom(): void {
+		this.overlay?.remove();
+		this.overlay = undefined;
 		this.card = undefined;
-		this.bodyEl = undefined;
 		this.progressContainer = undefined;
-		this.stepLabelEl = undefined;
-		this.titleEl = undefined;
-		this.subtitleEl = undefined;
-		this.contentEl = undefined;
+		this.titleElement = undefined;
+		this.subtitleElement = undefined;
+		this.contentElement = undefined;
 		this.backButton = undefined;
-		this.nextButton = undefined;
-		this.closeButton = undefined;
-		this.footerLeft = undefined;
-		this._footerSignInBtn = undefined;
+		this.nextButton = undefined;		this.stepFocusableElements.length = 0;
 		this.footerFocusableElements.length = 0;
-		this.stepFocusableElements.length = 0;
-		this._isShowing = false;
-		this.disposables.clear();
-		this.stepDisposables.clear();
-
-		if (this.previouslyFocusedElement) {
-			this.previouslyFocusedElement.focus();
-			this.previouslyFocusedElement = undefined;
-		}
-
 		this.currentStepIndex = 0;
+		this.isShowing = false;
+		this.viewDisposables.clear();
+		this.stepDisposables.clear();
+		this.previouslyFocusedElement?.focus();
+		this.previouslyFocusedElement = undefined;
 	}
 
 	override dispose(): void {
-		this._removeFromDOM();
+		this.removeFromDom();
 		super.dispose();
 	}
 }

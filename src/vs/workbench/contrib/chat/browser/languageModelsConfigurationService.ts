@@ -22,7 +22,7 @@ import { ITextModelService } from '../../../../editor/common/services/resolverSe
 import { ITextFileService } from '../../../services/textfile/common/textfiles.js';
 import { getCodeEditor } from '../../../../editor/browser/editorBrowser.js';
 import { SnippetController2 } from '../../../../editor/contrib/snippet/browser/snippetController2.js';
-import { ConfigureLanguageModelsOptions, ILanguageModelsConfigurationService, ILanguageModelsProviderGroup } from '../common/languageModelsConfiguration.js';
+import { assertNoLanguageModelsProviderGroupCollision, ConfigureLanguageModelsOptions, ILanguageModelsConfigurationService, ILanguageModelsProviderGroup, normalizeLanguageModelsDefaultProfiles } from '../common/languageModelsConfiguration.js';
 import { IJSONContributionRegistry, Extensions as JSONExtensions } from '../../../../platform/jsonschemas/common/jsonContributionRegistry.js';
 import { Registry } from '../../../../platform/registry/common/platform.js';
 import { IWorkbenchContribution } from '../../../common/contributions.js';
@@ -90,7 +90,7 @@ export class LanguageModelsConfigurationService extends Disposable implements IL
 	}
 
 	private async updateLanguageModelsConfiguration(): Promise<void> {
-		const languageModelsProviderGroups = await this.withLanguageModelsProviderGroups();
+		const languageModelsProviderGroups = normalizeLanguageModelsDefaultProfiles(await this.withLanguageModelsProviderGroups());
 		this.setLanguageModelsConfiguration(languageModelsProviderGroups);
 	}
 
@@ -104,7 +104,7 @@ export class LanguageModelsConfigurationService extends Disposable implements IL
 				throw new Error(`Language model group with name ${toAdd.name} already exists for vendor ${toAdd.vendor}`);
 			}
 			languageModelsProviderGroups.push(toAdd);
-			return languageModelsProviderGroups;
+			return normalizeLanguageModelsDefaultProfiles(languageModelsProviderGroups, toAdd);
 		});
 
 		await this.updateLanguageModelsConfiguration();
@@ -117,6 +117,7 @@ export class LanguageModelsConfigurationService extends Disposable implements IL
 
 	async updateLanguageModelsProviderGroup(from: ILanguageModelsProviderGroup, to: ILanguageModelsProviderGroup): Promise<ILanguageModelsProviderGroup> {
 		await this.withLanguageModelsProviderGroups(async languageModelsProviderGroups => {
+			assertNoLanguageModelsProviderGroupCollision(languageModelsProviderGroups, from, to);
 			const result: LanguageModelsProviderGroups = [];
 			for (const group of languageModelsProviderGroups) {
 				if (group.name === from.name && group.vendor === from.vendor) {
@@ -125,7 +126,7 @@ export class LanguageModelsConfigurationService extends Disposable implements IL
 					result.push(group);
 				}
 			}
-			return result;
+			return normalizeLanguageModelsDefaultProfiles(result, to);
 		});
 
 		await this.updateLanguageModelsConfiguration();
@@ -351,6 +352,10 @@ export class ChatLanguageModelsDataContribution extends Disposable implements IW
 						enum: vendors.map(v => v.vendor)
 					},
 					name: { type: 'string' },
+					isDefaultProfile: {
+						type: 'boolean',
+						description: localize('settings.isDefaultProfile', "Use this provider profile as the global Chat and Edit default")
+					},
 					settings: {
 						type: 'object',
 						description: localize('settings.perModelConfig', "Per-model settings"),

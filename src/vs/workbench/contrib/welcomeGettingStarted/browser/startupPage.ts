@@ -34,7 +34,6 @@ import { getActiveElement } from '../../../../base/browser/dom.js';
 import { isWeb } from '../../../../base/common/platform.js';
 import { IOnboardingService } from '../../welcomeOnboarding/common/onboardingService.js';
 import { ONBOARDING_STORAGE_KEY } from '../../welcomeOnboarding/common/onboardingTypes.js';
-import { IDefaultAccountService } from '../../../../platform/defaultAccount/common/defaultAccount.js';
 
 export const restoreWalkthroughsConfigurationKey = 'workbench.welcomePage.restorableWalkthroughs';
 export type RestoreWalkthroughsConfigurationValue = { folder: string; category?: string; step?: string };
@@ -96,18 +95,11 @@ export class StartupPageRunnerContribution extends Disposable implements IWorkbe
 		@INotificationService private readonly notificationService: INotificationService,
 		@IContextKeyService private readonly contextKeyService: IContextKeyService,
 		@IOnboardingService private readonly onboardingService: IOnboardingService,
-		@IDefaultAccountService private readonly defaultAccountService: IDefaultAccountService,
 	) {
 		super();
 
 		this._register(this.onboardingService.onDidDismiss(() => {
 			this.storageService.store(ONBOARDING_STORAGE_KEY, true, StorageScope.APPLICATION, StorageTarget.USER);
-		}));
-		this.tryShowOnboarding().then(undefined, onUnexpectedError);
-		this._register(this.defaultAccountService.onDidChangeDefaultAccount(account => {
-			if (!account) {
-				this.tryShowOnboarding().then(undefined, onUnexpectedError);
-			}
 		}));
 		this.run().then(undefined, onUnexpectedError);
 		this._register(this.editorService.onDidCloseEditor((e) => {
@@ -119,6 +111,10 @@ export class StartupPageRunnerContribution extends Disposable implements IWorkbe
 	}
 
 	private async run() {
+
+		// Show onboarding as early as possible
+		await this.lifecycleService.when(LifecyclePhase.Starting);
+		await this.tryShowOnboarding();
 
 		// Wait for resolving startup editor until we are restored to reduce startup pressure
 		await this.lifecycleService.when(LifecyclePhase.Restored);
@@ -250,25 +246,11 @@ export class StartupPageRunnerContribution extends Disposable implements IWorkbe
 			return; // not supported on web (e.g. codespaces, github.dev)
 		}
 
-		if (!this.configurationService.getValue<boolean>('workbench.welcomePage.experimentalOnboarding')) {
-			return; // experimental onboarding is disabled
-		}
-
-		const defaultAccount = await this.defaultAccountService.getDefaultAccount();
-		if (!defaultAccount) {
-			this.onboardingService.show({ requireSignIn: true });
-			return; // signed-out users should always land in onboarding
-		}
-
-		if (!this.storageService.isNew(StorageScope.APPLICATION)) {
-			return; // only show onboarding for new users who have never used the product before
-		}
-
 		if (this.storageService.getBoolean(ONBOARDING_STORAGE_KEY, StorageScope.APPLICATION)) {
 			return; // onboarding already completed
 		}
 
-		// Show the onboarding overlay on top of the welcome page
+		// Pointer setup is deliberately account-free. Completion state is the only gate.
 		this.onboardingService.show();
 	}
 }

@@ -68,7 +68,7 @@ export function registerNewChatActions() {
 	MenuRegistry.appendMenuItem(MenuId.ViewTitle, {
 		submenu: MenuId.ChatNewMenu,
 		title: localize2('chat.newEdits.label', "New Chat"),
-		icon: Codicon.plus,
+		icon: Codicon.cursor,
 		when: ContextKeyExpr.equals('view', ChatViewId),
 		group: 'navigation',
 		order: -1,
@@ -80,7 +80,7 @@ export function registerNewChatActions() {
 			super({
 				id: 'workbench.action.chatEditor.newChat',
 				title: localize2('chat.newChat.label', "New Chat"),
-				icon: Codicon.plus,
+				icon: Codicon.cursor,
 				f1: false,
 				precondition: ChatContextKeys.enabled,
 			});
@@ -96,7 +96,7 @@ export function registerNewChatActions() {
 				id: ACTION_ID_NEW_CHAT,
 				title: localize2('chat.newEdits.label', "New Chat"),
 				category: CHAT_CATEGORY,
-				icon: Codicon.plus,
+				icon: Codicon.cursor,
 				precondition: ContextKeyExpr.and(ChatContextKeys.enabled, ChatContextKeys.location.isEqualTo(ChatAgentLocation.Chat)),
 				f1: true,
 				menu: [
@@ -179,7 +179,7 @@ export function registerNewChatActions() {
 				id: 'workbench.action.chat.newLocalChat',
 				title: localize2('chat.newLocalChat.label', "New Local Chat"),
 				category: CHAT_CATEGORY,
-				icon: Codicon.plus,
+				icon: Codicon.cursor,
 				precondition: ContextKeyExpr.and(ChatContextKeys.enabled, ChatContextKeys.location.isEqualTo(ChatAgentLocation.Chat)),
 				f1: false,
 			});

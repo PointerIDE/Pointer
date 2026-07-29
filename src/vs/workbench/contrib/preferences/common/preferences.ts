@@ -15,6 +15,8 @@ import { IProductService } from '../../../../platform/product/common/productServ
 import { IChatEntitlementService } from '../../../services/chat/common/chatEntitlementService.js';
 import { ISearchResult, ISettingsEditorModel } from '../../../services/preferences/common/preferences.js';
 
+export const AI_MODELS_SETTINGS_CATEGORY_ID = 'chat';
+
 export interface IWorkbenchSettingsConfiguration {
 	workbench: {
 		settings: {

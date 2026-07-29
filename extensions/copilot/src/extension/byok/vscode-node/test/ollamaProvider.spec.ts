@@ -13,7 +13,7 @@ describe('OllamaLMProvider', () => {
 		const tagsModels = [{ model: 'good-model-a' }, { model: 'bad-model' }, { model: 'good-model-b' }];
 		const showCalls: string[] = [];
 
-		const fetch = vi.fn(async (url: string, options: { body?: string }) => {
+		const fetch = vi.fn(async (url: string, options: { body?: string; timeout?: number }) => {
 			if (url === `${ollamaBaseUrl}/api/version`) {
 				return { json: async () => ({ version: '0.6.4' }) };
 			}
@@ -83,12 +83,13 @@ describe('OllamaLMProvider', () => {
 		const models = await provider.provideLanguageModelChatInformation(
 			{
 				silent: false,
-				configuration: { url: ollamaBaseUrl },
+				configuration: undefined,
 			},
 			tokenSource.token
 		);
 
 		expect(showCalls).toEqual(['good-model-a', 'bad-model', 'good-model-b']);
 		expect(models.map(model => model.id)).toEqual(['good-model-a', 'good-model-b']);
+		expect(fetch.mock.calls.map(([, options]) => options.timeout)).toEqual([1500, 1500, 1500, 1500, 1500]);
 	});
 });

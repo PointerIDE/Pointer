@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { CancellationToken, ChatLocation, commands, LanguageModelChatInformation, LanguageModelChatMessage, LanguageModelChatMessage2, LanguageModelChatProvider, LanguageModelResponsePart2, PrepareLanguageModelChatModelOptions, Progress, ProvideLanguageModelChatResponseOptions } from 'vscode';
+import { CancellationToken, ChatLocation, commands, LanguageModelChatInformation, LanguageModelChatMessage, LanguageModelChatMessage2, LanguageModelChatProvider, LanguageModelResponsePart2, l10n, PrepareLanguageModelChatModelOptions, Progress, ProvideLanguageModelChatResponseOptions } from 'vscode';
 import { IConfigurationService } from '../../../platform/configuration/common/configurationService';
 import { IChatModelInformation, ModelSupportedEndpoint } from '../../../platform/endpoint/common/endpointProvider';
 import { ILogService } from '../../../platform/log/common/logService';
@@ -17,11 +17,15 @@ import { OpenAIEndpoint } from '../node/openAIEndpoint';
 import { IBYOKStorageService } from './byokStorageService';
 
 export interface LanguageModelChatConfiguration {
+	readonly enabled?: boolean;
 	readonly apiKey?: string;
 	readonly url?: string;
 	readonly baseUrl?: string;
+	readonly apiPath?: string;
 	readonly authType?: 'bearer' | 'header' | 'none';
 	readonly customHeaderName?: string;
+	readonly additionalHeaders?: string;
+	readonly requestTimeout?: number;
 	readonly modelsFetchUrl?: string;
 	readonly modelFetchUrl?: string;
 	readonly cachedModels?: readonly CachedLanguageModelConfiguration[];
@@ -29,6 +33,60 @@ export interface LanguageModelChatConfiguration {
 	readonly defaultChatModel?: string;
 	readonly defaultCodingModel?: string;
 	readonly fastModel?: string;
+}
+
+const MIN_REQUEST_TIMEOUT = 250;
+const MAX_REQUEST_TIMEOUT = 120000;
+const MAX_ADDITIONAL_HEADER_COUNT = 20;
+const VALID_HEADER_NAME_PATTERN = /^[!#$%&'*+\-.0-9A-Z^_`a-z|~]+$/;
+const RESERVED_ADDITIONAL_HEADERS: ReadonlySet<string> = new Set([
+	'accept-charset', 'accept-encoding', 'access-control-request-headers', 'access-control-request-method',
+	'connection', 'content-length', 'cookie', 'date', 'dnt', 'expect', 'host', 'keep-alive', 'origin',
+	'permissions-policy', 'referer', 'te', 'trailer', 'transfer-encoding', 'upgrade', 'user-agent', 'via',
+	'forwarded', 'x-forwarded-for', 'x-forwarded-host', 'x-forwarded-proto', 'api-key', 'authorization',
+	'content-type', 'openai-intent', 'x-github-api-version', 'x-initiator', 'x-interaction-id',
+	'x-interaction-type', 'x-onbehalf-extension-id', 'x-request-id', 'x-vscode-user-agent-library-version'
+]);
+
+export function resolveRequestTimeout(value: unknown, fallback: number): number {
+	if (value === undefined) {
+		return fallback;
+	}
+	if (typeof value !== 'number' || !Number.isInteger(value) || value < MIN_REQUEST_TIMEOUT || value > MAX_REQUEST_TIMEOUT) {
+		throw new Error(l10n.t('Request timeout must be a whole number between {0} and {1} milliseconds.', MIN_REQUEST_TIMEOUT, MAX_REQUEST_TIMEOUT));
+	}
+	return value;
+}
+
+export function parseAdditionalHeaders(value: string | undefined): IStringDictionary<string> {
+	const headers: IStringDictionary<string> = {};
+	if (!value?.trim()) {
+		return headers;
+	}
+	if (/[\r\n]/.test(value)) {
+		throw new Error(l10n.t('Additional headers must use semicolons between entries.'));
+	}
+
+	const entries = value.split(';').map(entry => entry.trim()).filter(entry => !!entry);
+	if (entries.length > MAX_ADDITIONAL_HEADER_COUNT) {
+		throw new Error(l10n.t('No more than {0} additional headers are allowed.', MAX_ADDITIONAL_HEADER_COUNT));
+	}
+
+	for (const entry of entries) {
+		const separator = entry.indexOf(':');
+		const name = separator > 0 ? entry.slice(0, separator).trim() : '';
+		const headerValue = separator > 0 ? entry.slice(separator + 1).trim() : '';
+		const lowerName = name.toLowerCase();
+		if (!name || !headerValue || name.length > 256 || headerValue.length > 8192 ||
+			!VALID_HEADER_NAME_PATTERN.test(name) || /[\x00-\x1F\x7F\u200B-\u200D\u202A-\u202E\uFEFF]/.test(headerValue) ||
+			RESERVED_ADDITIONAL_HEADERS.has(lowerName) || lowerName.startsWith('proxy-') || lowerName.startsWith('sec-') ||
+			lowerName.startsWith('x-http-method') || lowerName === 'x-method-override') {
+			throw new Error(l10n.t('An additional header is invalid or reserved.'));
+		}
+		headers[name] = headerValue;
+	}
+
+	return headers;
 }
 
 export interface ExtendedLanguageModelChatInformation<C extends LanguageModelChatConfiguration> extends LanguageModelChatInformation {
@@ -67,16 +125,21 @@ export abstract class AbstractLanguageModelChatProvider<C extends LanguageModelC
 	}
 
 	async provideLanguageModelChatInformation({ silent, configuration }: PrepareLanguageModelChatModelOptions, token: CancellationToken): Promise<T[]> {
-		let apiKey: string | undefined = (configuration as C)?.apiKey;
+		const typedConfiguration = configuration as C | undefined;
+		if (typedConfiguration?.enabled === false) {
+			return [];
+		}
+
+		let apiKey: string | undefined = typedConfiguration?.apiKey;
 		if (!apiKey) {
 			apiKey = await this.configureDefaultGroupWithApiKeyOnly();
 		}
 
-		const models = await this.getAllModels(silent, apiKey, configuration as C);
+		const models = await this.getAllModels(silent, apiKey, typedConfiguration);
 		return models.map(model => ({
 			...model,
 			apiKey,
-			configuration
+				configuration: typedConfiguration
 		}));
 	}
 
@@ -118,11 +181,15 @@ export abstract class AbstractOpenAICompatibleLMProvider<T extends LanguageModel
 	}
 
 	protected async getAllModels(silent: boolean, apiKey: string | undefined, configuration: T | undefined): Promise<OpenAICompatibleLanguageModelChatInformation<T>[]> {
+		if (!configuration && silent) {
+			return [];
+		}
 		const modelsUrl = this.normalizeBaseUrl(this.getModelsBaseUrl(configuration));
 		const cachedModels = this.getKnownModelsFromConfiguration(configuration);
 		if (modelsUrl) {
 			try {
-				const models = await this.getModelsFromEndpoint(modelsUrl, silent, apiKey, configuration);
+				const discoveredModels = await this.getModelsFromEndpoint(modelsUrl, silent, apiKey, configuration);
+				const models = this.mergeDiscoveredAndConfiguredModels(discoveredModels, cachedModels);
 				return this.toOpenAICompatibleModels(models, modelsUrl, configuration);
 			} catch (error) {
 				this._logService.error(error, `Error fetching available ${this._name} models`);
@@ -133,6 +200,16 @@ export abstract class AbstractOpenAICompatibleLMProvider<T extends LanguageModel
 			}
 		}
 		return this.toOpenAICompatibleModels(cachedModels, '', configuration);
+	}
+
+	private mergeDiscoveredAndConfiguredModels(discoveredModels: BYOKKnownModels, configuredModels: BYOKKnownModels): BYOKKnownModels {
+		const models: BYOKKnownModels = { ...discoveredModels };
+		for (const [id, capabilities] of Object.entries(configuredModels)) {
+			if (!models[id]) {
+				models[id] = capabilities;
+			}
+		}
+		return models;
 	}
 
 	private async getModelsFromEndpoint(endpoint: string, silent: boolean, apiKey: string | undefined, configuration: T | undefined): Promise<BYOKKnownModels> {
@@ -149,7 +226,7 @@ export abstract class AbstractOpenAICompatibleLMProvider<T extends LanguageModel
 				method: 'GET',
 				headers,
 				callSite: 'byok-models-discovery',
-				timeout: 15000,
+				timeout: this.getModelDiscoveryTimeout(configuration),
 			});
 			if (!response.ok) {
 				throw new Error(`HTTP ${response.status} ${response.statusText}`);
@@ -193,10 +270,18 @@ export abstract class AbstractOpenAICompatibleLMProvider<T extends LanguageModel
 		}
 	}
 
+	protected getModelDiscoveryTimeout(configuration: T | undefined): number {
+		return resolveRequestTimeout(configuration?.requestTimeout, 15000);
+	}
+
 	protected async createOpenAIEndPoint(model: OpenAICompatibleLanguageModelChatInformation<T>): Promise<OpenAIEndpoint> {
 		const modelInfo = this.getModelInfo(model.id, model.url);
 		modelInfo.authType = model.configuration?.authType ?? (model.configuration?.apiKey ? 'bearer' : 'none');
 		modelInfo.authHeaderName = model.configuration?.customHeaderName;
+		modelInfo.requestHeaders = { ...modelInfo.requestHeaders, ...parseAdditionalHeaders(model.configuration?.additionalHeaders) };
+		if (model.configuration?.requestTimeout !== undefined) {
+			modelInfo.requestTimeout = resolveRequestTimeout(model.configuration.requestTimeout, 15000);
+		}
 		const url = modelInfo.supported_endpoints?.includes(ModelSupportedEndpoint.Responses) ?
 			`${model.url}/responses` :
 			`${model.url}/chat/completions`;
@@ -237,13 +322,15 @@ export abstract class AbstractOpenAICompatibleLMProvider<T extends LanguageModel
 			'Content-Type': 'application/json'
 		};
 		const authType = configuration?.authType ?? (apiKey ? 'bearer' : 'none');
-		if (!apiKey || authType === 'none') {
-			return headers;
-		}
-		if (authType === 'header') {
+		if (apiKey && authType === 'header') {
 			headers[configuration?.customHeaderName || 'api-key'] = apiKey;
-		} else {
+		} else if (apiKey && authType === 'bearer') {
 			headers['Authorization'] = `Bearer ${apiKey}`;
+		}
+		for (const [name, value] of Object.entries(parseAdditionalHeaders(configuration?.additionalHeaders))) {
+			if (!Object.keys(headers).some(existingName => existingName.toLowerCase() === name.toLowerCase())) {
+				headers[name] = value;
+			}
 		}
 		return headers;
 	}
@@ -258,7 +345,7 @@ export abstract class AbstractOpenAICompatibleLMProvider<T extends LanguageModel
 				name: cached.name ?? cached.id,
 				maxInputTokens: cached.maxInputTokens ?? 100000,
 				maxOutputTokens: cached.maxOutputTokens ?? 8192,
-				toolCalling: cached.toolCalling ?? true,
+				toolCalling: cached.toolCalling ?? false,
 				vision: cached.vision ?? false,
 				thinking: cached.thinking,
 				adaptiveThinking: cached.adaptiveThinking,
@@ -279,7 +366,14 @@ export abstract class AbstractOpenAICompatibleLMProvider<T extends LanguageModel
 	}
 
 	private getDefaultModelCapabilities(modelId: string): BYOKModelCapabilities {
-		return inferBYOKModelCapabilities(modelId);
+		return this._knownModels?.[modelId] ?? {
+			name: modelId,
+			maxInputTokens: 128000,
+			maxOutputTokens: 8192,
+			toolCalling: false,
+			vision: false,
+			streaming: true
+		};
 	}
 
 	private toOpenAICompatibleModels(models: BYOKKnownModels, url: string, configuration: T | undefined): OpenAICompatibleLanguageModelChatInformation<T>[] {

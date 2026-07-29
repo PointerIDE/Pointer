@@ -124,6 +124,8 @@ Assert-DevOutput -NodePath $NodeExe
 
 Push-Location $Root
 try {
+	# Electron must run as Electron even when Pointer is launched from an agent-enabled shell.
+	Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
 	$env:VSCODE_SKIP_PRELAUNCH = '1'
 	& $CodeBat @LaunchArgs
 	exit $LASTEXITCODE

@@ -12,6 +12,7 @@ AppPublisher=Pointer Team
 AppPublisherURL=https://github.com/PointerIDE/Pointer
 AppSupportURL=https://github.com/PointerIDE/Pointer/issues
 AppUpdatesURL=https://github.com/PointerIDE/Pointer/releases
+AppComments=Pointer - local-first, agentic coding
 DefaultGroupName={#NameLong}
 AllowNoIcons=yes
 OutputDir={#OutputDir}
@@ -20,10 +21,11 @@ Compression=lzma
 SolidCompression=yes
 AppMutex={code:GetAppMutex}
 SetupMutex={code:GetSetupMutex}
-WizardImageFile="{#RepoDir}\resources\win32\inno-big-100.bmp,{#RepoDir}\resources\win32\inno-big-125.bmp,{#RepoDir}\resources\win32\inno-big-150.bmp,{#RepoDir}\resources\win32\inno-big-175.bmp,{#RepoDir}\resources\win32\inno-big-200.bmp,{#RepoDir}\resources\win32\inno-big-225.bmp,{#RepoDir}\resources\win32\inno-big-250.bmp"
-WizardSmallImageFile="{#RepoDir}\resources\win32\inno-small-100.bmp,{#RepoDir}\resources\win32\inno-small-125.bmp,{#RepoDir}\resources\win32\inno-small-150.bmp,{#RepoDir}\resources\win32\inno-small-175.bmp,{#RepoDir}\resources\win32\inno-small-200.bmp,{#RepoDir}\resources\win32\inno-small-225.bmp,{#RepoDir}\resources\win32\inno-small-250.bmp"
+WizardImageFile="{#RepoDir}\resources\win32\pointer-setup-sidebar-100.bmp,{#RepoDir}\resources\win32\pointer-setup-sidebar-125.bmp,{#RepoDir}\resources\win32\pointer-setup-sidebar-150.bmp,{#RepoDir}\resources\win32\pointer-setup-sidebar-175.bmp,{#RepoDir}\resources\win32\pointer-setup-sidebar-200.bmp,{#RepoDir}\resources\win32\pointer-setup-sidebar-225.bmp,{#RepoDir}\resources\win32\pointer-setup-sidebar-250.bmp"
+WizardSmallImageFile="{#RepoDir}\resources\win32\pointer-setup-header-100.bmp,{#RepoDir}\resources\win32\pointer-setup-header-125.bmp,{#RepoDir}\resources\win32\pointer-setup-header-150.bmp,{#RepoDir}\resources\win32\pointer-setup-header-175.bmp,{#RepoDir}\resources\win32\pointer-setup-header-200.bmp,{#RepoDir}\resources\win32\pointer-setup-header-225.bmp,{#RepoDir}\resources\win32\pointer-setup-header-250.bmp"
 SetupIconFile={#RepoDir}\resources\win32\code.ico
 UninstallDisplayIcon={app}\{#ExeBasename}.exe
+UninstallDisplayName={#NameLong}
 ChangesEnvironment=true
 ChangesAssociations=true
 MinVersion=10.0
@@ -34,6 +36,12 @@ ShowLanguageDialog=auto
 ArchitecturesAllowed={#ArchitecturesAllowed}
 ArchitecturesInstallIn64BitMode={#ArchitecturesInstallIn64BitMode}
 WizardStyle=modern
+WizardSizePercent=110
+DisableWelcomePage=no
+VersionInfoCompany=Pointer Team
+VersionInfoDescription={#NameLong} Setup
+VersionInfoProductName={#NameLong}
+VersionInfoProductVersion={#RawVersion}
 
 // We've seen an uptick on broken installations from updates which were unable
 // to shutdown Pointer. We rely on the fact that the update signals
@@ -1330,6 +1338,44 @@ Root: {#EnvironmentRootKey}; Subkey: "Software\Microsoft\Windows\CurrentVersion\
 Root: {#EnvironmentRootKey}; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\{#ApplicationName}.exe"; ValueType: string; ValueName: "Path"; ValueData: "{app}"; Flags: uninsdeletekey
 
 [Code]
+procedure ApplyPointerWizardTheme();
+begin
+  { Pointer's installer mirrors the app's monochrome dark theme. }
+  WizardForm.Font.Name := 'Segoe UI';
+  WizardForm.Font.Size := 9;
+  WizardForm.Color := $121212;
+  WizardForm.WelcomePage.Color := $121212;
+  WizardForm.InnerPage.Color := $121212;
+  WizardForm.FinishedPage.Color := $121212;
+  WizardForm.MainPanel.Color := $181818;
+
+  WizardForm.PageNameLabel.Font.Color := clWhite;
+  WizardForm.PageDescriptionLabel.Font.Color := $C8C8C8;
+  WizardForm.WelcomeLabel1.Font.Color := clWhite;
+  WizardForm.WelcomeLabel2.Font.Color := $C8C8C8;
+  WizardForm.FinishedHeadingLabel.Font.Color := clWhite;
+  WizardForm.FinishedLabel.Font.Color := $C8C8C8;
+  WizardForm.SelectDirLabel.Font.Color := $E6E6E6;
+  WizardForm.SelectStartMenuFolderLabel.Font.Color := $E6E6E6;
+  WizardForm.SelectTasksLabel.Font.Color := $E6E6E6;
+  WizardForm.ReadyLabel.Font.Color := $E6E6E6;
+  WizardForm.PreparingLabel.Font.Color := $E6E6E6;
+  WizardForm.StatusLabel.Font.Color := $E6E6E6;
+  WizardForm.FilenameLabel.Font.Color := $A6A6A6;
+
+  WizardForm.DirEdit.Color := $202020;
+  WizardForm.DirEdit.Font.Color := clWhite;
+  WizardForm.GroupEdit.Color := $202020;
+  WizardForm.GroupEdit.Font.Color := clWhite;
+  WizardForm.ReadyMemo.Color := $181818;
+  WizardForm.ReadyMemo.Font.Color := $E6E6E6;
+end;
+
+procedure InitializeWizard();
+begin
+  ApplyPointerWizardTheme();
+end;
+
 function IsBackgroundUpdate(): Boolean;
 begin
   Result := ExpandConstant('{param:update|false}') <> 'false';

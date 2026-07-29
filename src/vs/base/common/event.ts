@@ -512,13 +512,13 @@ export namespace Event {
 	 * this.onInstallExtension = Event.buffer(service.onInstallExtension, 'onInstallExtension', true);
 	 * ```
 	 */
-	export function buffer<T>(event: Event<T>, debugName: string, flushAfterTimeout = false, _buffer: T[] = [], disposable?: DisposableStore): Event<T> {
+	export function buffer<T>(event: Event<T>, debugName: string, flushAfterTimeout = false, _buffer: T[] = [], disposable?: DisposableStore, ignoreLeakWarning = false): Event<T> {
 		let buffer: T[] | null = _buffer.slice();
 
 		// Dev-only leak detection: track when buffer was created and warn
 		// if events accumulate without ever being consumed.
 		let bufferLeakWarningData: { stack: Stacktrace; timerId: ReturnType<typeof setTimeout>; warned: boolean } | undefined;
-		if (_isBufferLeakWarningEnabled()) {
+		if (_isBufferLeakWarningEnabled() && !ignoreLeakWarning) {
 			bufferLeakWarningData = {
 				stack: Stacktrace.create(),
 				timerId: setTimeout(() => {

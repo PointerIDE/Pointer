@@ -103,6 +103,20 @@ function getAnthropicAudioCapturePlatform(nodePlatform: string, nodeArch: string
 	return anthropicAudioCapturePlatforms.includes(platformArch) ? platformArch : undefined;
 }
 
+function getMxcBinExcludes(nodePlatform: string, nodeArch: string): string[] {
+	// Copilot selects this directory from os.arch(), then selects the executable
+	// for os.platform(). Keep this conservative until other targets are verified.
+	if (nodePlatform !== 'win32' || nodeArch !== 'x64') {
+		return [];
+	}
+
+	return [
+		'!**/node_modules/@github/copilot/mxc-bin/arm64/**',
+		'!**/node_modules/@github/copilot/mxc-bin/x64/lxc-exec',
+		'!**/node_modules/@github/copilot/mxc-bin/x64/mxc-exec-mac',
+	];
+}
+
 /**
  * Returns a glob filter that strips @github/copilot platform packages
  * for architectures other than the build target.
@@ -136,6 +150,7 @@ export function getCopilotExcludeFilter(platform: string, arch: string): string[
 	excludes.push(...pvrecorderNativePlatforms
 		.filter(p => p !== targetPvrecorderPlatform)
 		.map(p => `!**/node_modules/@github/copilot/pvrecorder/node_modules/@picovoice/pvrecorder-node/lib/${p}/**`));
+	excludes.push(...getMxcBinExcludes(nodePlatform, nodeArch));
 
 	return ['**', ...excludes];
 }
@@ -173,6 +188,12 @@ function pruneBuiltInCopilotNativePayloads(platform: string, arch: string, exten
 
 	for (const platform of anthropicAudioCapturePlatforms.filter(p => p !== targetAnthropicAudioCapturePlatform)) {
 		removeIfExists(extensionNodeModules, '@anthropic-ai', 'claude-agent-sdk', 'vendor', 'audio-capture', platform);
+	}
+
+	if (nodePlatform === 'win32' && nodeArch === 'x64') {
+		removeIfExists(extensionNodeModules, '@github', 'copilot', 'mxc-bin', 'arm64');
+		removeIfExists(extensionNodeModules, '@github', 'copilot', 'mxc-bin', 'x64', 'lxc-exec');
+		removeIfExists(extensionNodeModules, '@github', 'copilot', 'mxc-bin', 'x64', 'mxc-exec-mac');
 	}
 }
 

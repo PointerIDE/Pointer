@@ -712,6 +712,8 @@ export class CodeWindow extends BaseWindow implements ICodeWindow {
 			}
 
 			const options = instantiationService.invokeFunction(defaultBrowserWindowOptions, this.windowState, undefined, webPreferences);
+			// Pointer is dark by default. Keep the native surface dark before the renderer applies the full theme.
+			options.backgroundColor = '#0B0B0B';
 
 			// Create the browser window
 			mark('code/willCreateCodeBrowserWindow');

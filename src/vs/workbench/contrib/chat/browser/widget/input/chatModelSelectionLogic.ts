@@ -29,13 +29,13 @@ export function filterModelsForSession(
 	if (sessionType && sessionType !== 'local' && hasModelsTargetingSession(models, sessionType)) {
 		return models.filter(entry =>
 			entry.metadata?.targetChatSessionType === sessionType &&
-			entry.metadata?.isUserSelectable
+			entry.metadata?.isUserSelectable !== false
 		);
 	}
 
 	return models.filter(entry =>
 		!entry.metadata?.targetChatSessionType &&
-		entry.metadata?.isUserSelectable &&
+		entry.metadata?.isUserSelectable !== false &&
 		isModelSupportedForMode(entry, currentModeKind) &&
 		isModelSupportedForInlineChat(entry, location)
 	);

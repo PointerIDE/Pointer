@@ -13,10 +13,17 @@ import { IStringDictionary } from '../../../util/vs/base/common/collections';
 import { IInstantiationService } from '../../../util/vs/platform/instantiation/common/instantiation';
 import { byokKnownModelToAPIInfo, resolveModelInfo } from '../common/byokProvider';
 import { OpenAIEndpoint } from '../node/openAIEndpoint';
-import { AbstractOpenAICompatibleLMProvider, LanguageModelChatConfiguration, OpenAICompatibleLanguageModelChatInformation } from './abstractLanguageModelChatProvider';
+import { AbstractOpenAICompatibleLMProvider, LanguageModelChatConfiguration, OpenAICompatibleLanguageModelChatInformation, parseAdditionalHeaders, resolveRequestTimeout } from './abstractLanguageModelChatProvider';
 import { IBYOKStorageService } from './byokStorageService';
 
-export function resolveCustomOAIUrl(modelId: string, url: string): string {
+export function resolveCustomOAIUrl(modelId: string, url: string, apiPath?: string): string {
+	const configuredApiPath = apiPath?.trim();
+	if (configuredApiPath) {
+		const normalizedBaseUrl = url.replace(/\/+$/, '');
+		const normalizedApiPath = configuredApiPath.startsWith('/') ? configuredApiPath : `/${configuredApiPath}`;
+		return `${normalizedBaseUrl}${normalizedApiPath}`;
+	}
+
 	// The fully resolved url was already passed in
 	if (hasExplicitApiPath(url)) {
 		return url;
@@ -131,7 +138,7 @@ export abstract class AbstractCustomOAIBYOKModelProvider extends AbstractOpenAIC
 	}
 
 	protected override async createOpenAIEndPoint(model: OpenAICompatibleLanguageModelChatInformation<CustomOAIModelProviderConfig>): Promise<OpenAIEndpoint> {
-		const url = this.resolveUrl(model.id, model.url);
+		const url = this.resolveUrl(model.id, model.url, model.configuration?.apiPath);
 		const modelConfiguration = model.configuration?.models?.find(m => m.id === model.id);
 		const modelCapabilities = {
 			maxInputTokens: model.maxInputTokens,
@@ -148,6 +155,10 @@ export abstract class AbstractCustomOAIBYOKModelProvider extends AbstractOpenAIC
 		const modelInfo = resolveModelInfo(model.id, this._name, undefined, modelCapabilities);
 		modelInfo.authType = model.configuration?.authType ?? (model.configuration?.apiKey ? 'bearer' : 'none');
 		modelInfo.authHeaderName = model.configuration?.customHeaderName;
+		modelInfo.requestHeaders = { ...modelInfo.requestHeaders, ...parseAdditionalHeaders(model.configuration?.additionalHeaders) };
+		if (model.configuration?.requestTimeout !== undefined) {
+			modelInfo.requestTimeout = resolveRequestTimeout(model.configuration.requestTimeout, 15000);
+		}
 		if (modelCapabilities?.url?.includes('/responses')) {
 			modelInfo.supported_endpoints = [
 				ModelSupportedEndpoint.ChatCompletions,
@@ -161,7 +172,7 @@ export abstract class AbstractCustomOAIBYOKModelProvider extends AbstractOpenAIC
 		return configuration?.baseUrl ?? configuration?.url;
 	}
 
-	protected abstract resolveUrl(modelId: string, url: string): string;
+	protected abstract resolveUrl(modelId: string, url: string, apiPath?: string): string;
 }
 
 export class CustomOAIBYOKModelProvider extends AbstractCustomOAIBYOKModelProvider {
@@ -187,7 +198,7 @@ export class CustomOAIBYOKModelProvider extends AbstractCustomOAIBYOKModelProvid
 		await this.migrateConfig(ConfigKey.Deprecated.CustomOAIModels, this.providerName, this.providerName);
 	}
 
-	protected resolveUrl(modelId: string, url: string): string {
-		return resolveCustomOAIUrl(modelId, url);
+	protected resolveUrl(modelId: string, url: string, apiPath?: string): string {
+		return resolveCustomOAIUrl(modelId, url, apiPath);
 	}
 }
